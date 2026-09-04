@@ -16,7 +16,9 @@ Personal-use app (not distributed). Full design: `docs/PLAN.md`.
 ## Build & test (run from WSL, uses the Windows toolchain)
 This repo is developed from WSL but compiled with the Windows toolchain so the result is a real Windows exe.
 - `cargo.exe check --workspace` / `cargo.exe test -p vibecode-core` (Windows cargo; invoked directly from WSL)
-- `npm run build` (Windows node via the nvm4w shim), `npm run tauri build -- --bundles nsis` for the installer
+- `npm run build` (Windows node via the nvm4w shim), `cargo.exe tauri build --bundles nsis` for the installer.
+  Updater artifacts need the signing key or the last step reports an error (installer is still produced):
+  `WSLENV=TAURI_SIGNING_PRIVATE_KEY_PATH/w TAURI_SIGNING_PRIVATE_KEY_PATH='C:\Users\<user>\.tauri\vibecoder.key' cargo.exe tauri build --bundles nsis`
 - `npm run tauri dev` opens the app on the Windows desktop
 - Regenerate TS bindings after touching `types.rs`: `cargo.exe test -p vibecode-core --test export_bindings`
 - Do NOT run `cargo` (Linux) here: no GTK/webkit dev libs in WSL and it would build a Linux binary.

@@ -33,3 +33,4 @@ Thumbs.db
 /target
 src-tauri/gen/schemas
 .tmp/
+/target-alt
