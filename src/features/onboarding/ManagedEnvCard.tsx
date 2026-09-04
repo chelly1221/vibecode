@@ -243,18 +243,27 @@ export function ManagedEnvCard({ status, tools, claudeLoggedIn, selected, recomm
   if (compact) return <div className="flex flex-col gap-3 rounded-xl border p-4">{body}</div>;
 
   const selectable = state === "installed";
+  // A div with role=button (not <button>) so the action buttons inside stay clickable.
   return (
-    <button
-      type="button"
-      disabled={!selectable}
+    <div
+      role="button"
+      tabIndex={selectable ? 0 : -1}
+      aria-disabled={!selectable}
       aria-pressed={selected}
       onClick={() => selectable && onSelect?.()}
+      onKeyDown={(e) => {
+        if (selectable && (e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+          e.preventDefault();
+          onSelect?.();
+        }
+      }}
       className={cn(
-        "flex flex-col gap-3 rounded-xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-70",
-        selected ? "border-primary bg-primary/5 ring-2 ring-primary/30" : selectable && "hover:bg-accent/40",
+        "flex flex-col gap-3 rounded-xl border p-4 text-left transition-colors",
+        !selectable && "cursor-not-allowed opacity-70",
+        selected ? "border-primary bg-primary/5 ring-2 ring-primary/30" : selectable && "cursor-pointer hover:bg-accent/40",
       )}
     >
       {body}
-    </button>
+    </div>
   );
 }

@@ -43,4 +43,5 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
   (`/init <exe> <argv0> <args…>` runs a Windows binary directly; repeat the exe name as argv0).
 - GUI verification: start the app with `WSLENV=WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS/w WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 cargo.exe tauri dev`,
   then drive it with `node.exe scripts/cdp.mjs eval|shot|run` (Chrome DevTools Protocol; screenshots land in `.tmp/`).
+- Managed environment: `crates/core/src/managed/` provisions an app-owned WSL distro `Vibecoder` (user `vibe`, no systemd) under `%LOCALAPPDATA%\Vibecoder`; remove with `wsl --unregister Vibecoder`.
 - WSL distros on this machine: `Ubuntu-24.04` (default, no claude) and `Ubuntu` (claude + codex installed, logged in). Pick `Ubuntu`.

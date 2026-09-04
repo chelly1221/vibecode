@@ -255,6 +255,7 @@ M2에서 가장 먼저 검증할 것: Windows에서 stream-json 양방향 스트
 - M0~M5 구현 완료. GUI 자동화(CDP)로 온보딩 → 프로젝트 열기 → git 패널 → Claude 세션 스트리밍 → 권한 승인 → 터미널 → 마법사 → 설정까지 실제 동작 확인.
 - Codex는 어댑터·프로토콜 테스트 완료, 실제 턴은 사용자가 WSL에서 `codex login` 후 확인 필요.
 - M6: NSIS 설치본 빌드와 GitHub Actions 워크플로 구성. 자동 업데이트는 개인용이라 제외.
+- 앱 전용 리눅스 환경(2026-09-04 추가): WSL 미설치 시 관리자 권한 `wsl --install --no-distribution` + 재부팅 안내, 설치돼 있으면 Ubuntu Base 24.04 rootfs(약 30MB, SHA256 검증)를 받아 `Vibecoder` 배포판으로 임포트하고 git·ripgrep·python·Node LTS·Claude Code·Codex를 자동 설치(사용자 `vibe`, systemd 비활성). 이 PC에서 실제 프로비저닝 성공(약 2GB).
 - 남은 개선 후보: 마법사의 "AI에게 물어보기" 스택 추천, 에이전트 턴별 체크포인트/롤백, AskUserQuestion 구조화 질문 UI, HTTPS+토큰 푸시용 credential helper.
 
 ## 8. 리스크와 대응
