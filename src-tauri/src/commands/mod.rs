@@ -37,6 +37,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         projects::stacks_list,
         projects::stacks_recommend,
         projects::stacks_ai_recommend,
+        projects::projects_agent_docs_status,
+        projects::projects_generate_agent_docs,
         sessions::session_start,
         sessions::session_send,
         sessions::session_interrupt,

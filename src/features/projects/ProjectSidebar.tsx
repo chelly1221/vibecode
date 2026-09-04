@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -14,6 +14,9 @@ import {
   MonitorPlay,
 } from "lucide-react";
 import { toast } from "sonner";
+import { isOverElement, PROJECT_DROP_ZONE } from "@/lib/dropZones";
+import { registerDroppedPaths, registerExistingProject } from "./registerExisting";
+import { AgentDocsPrompt } from "./AgentDocsPrompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -130,16 +133,42 @@ export function ProjectSidebar() {
 
   const openExisting = async () => {
     try {
-      const picked = await openDialog({ directory: true, multiple: false, title: "프로젝트 폴더 선택" });
+      const picked = await openDialog({ directory: true, multiple: false, title: "등록할 프로젝트 폴더 선택" });
       if (!picked) return;
-      const project = await ipc.projects.open(picked);
-      await loadProjects();
-      selectProject(project.id);
-      toast.success(`"${project.name}" 프로젝트를 열었습니다.`);
+      await registerExistingProject(picked);
     } catch (e) {
-      toast.error(`프로젝트를 열지 못했습니다: ${e}`);
+      toast.error(`프로젝트를 등록하지 못했습니다: ${e}`);
     }
   };
+
+  // Drag a folder from Explorer onto the sidebar to register it.
+  const [dropping, setDropping] = useState(false);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    import("@tauri-apps/api/webview")
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          const p = event.payload;
+          const zone = document.querySelector(PROJECT_DROP_ZONE);
+          if (p.type === "enter" || p.type === "over") setDropping(isOverElement(p.position, zone));
+          else if (p.type === "leave") setDropping(false);
+          else if (p.type === "drop") {
+            setDropping(false);
+            if (isOverElement(p.position, zone)) void registerDroppedPaths(p.paths);
+          }
+        }),
+      )
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   const remove = async () => {
     if (!pendingRemove) return;
@@ -153,14 +182,14 @@ export function ProjectSidebar() {
   };
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <aside data-drop-zone="projects" className={cn("flex h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground", dropping && "ring-2 ring-inset ring-primary/60")}>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-sm font-semibold tracking-tight">프로젝트</span>
         <div className="flex items-center gap-0.5">
           <IconButton label="새 프로젝트" onClick={() => setWizardOpen(true)}>
             <Plus />
           </IconButton>
-          <IconButton label="폴더 열기" onClick={openExisting}>
+          <IconButton label="기존 프로젝트 등록 (폴더 선택 · 드래그 앤 드롭)" onClick={openExisting}>
             <FolderOpen />
           </IconButton>
         </div>
@@ -170,12 +199,13 @@ export function ProjectSidebar() {
         {projects.length === 0 ? (
           <div className="px-2 py-6 text-center text-xs text-muted-foreground">
             <p>프로젝트가 없습니다.</p>
+            <p className="text-xs text-muted-foreground">이 앱으로 만들지 않은 폴더도 등록할 수 있습니다. 폴더를 여기에 끌어다 놓아도 됩니다.</p>
             <div className="mt-3 flex flex-col gap-1.5">
               <Button size="sm" onClick={() => setWizardOpen(true)}>
                 <Plus /> 새 프로젝트
               </Button>
               <Button size="sm" variant="outline" onClick={openExisting}>
-                <FolderOpen /> 기존 폴더 열기
+                <FolderOpen /> 기존 폴더 등록
               </Button>
             </div>
           </div>
@@ -225,6 +255,7 @@ export function ProjectSidebar() {
         destructive
         onConfirm={remove}
       />
+      <AgentDocsPrompt />
     </aside>
   );
 }

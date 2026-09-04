@@ -341,6 +341,14 @@ pub struct ProjectRecord {
     pub last_opened_at: DateTime<Utc>,
 }
 
+/// Which agent instruction files exist in a project directory.
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct AgentDocsStatus {
+    pub claude_md: bool,
+    pub agents_md: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct CreateProjectRequest {

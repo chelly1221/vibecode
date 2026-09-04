@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAppStore } from "@/stores/app";
+import { isOverElement, PROJECT_DROP_ZONE } from "@/lib/dropZones";
 import { Loader2Icon, SendHorizonalIcon, SquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -75,6 +76,8 @@ export function Composer({ disabled, running, starting, live, onSend, onInterrup
           else if (p.type === "leave") setDragging(false);
           else if (p.type === "drop") {
             setDragging(false);
+            // Folders dropped on the project sidebar are registered as projects, not inserted here.
+            if (isOverElement(p.position, document.querySelector(PROJECT_DROP_ZONE))) return;
             insertPaths(p.paths);
           }
         }),

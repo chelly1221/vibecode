@@ -426,3 +426,38 @@ mod tests {
         assert_eq!(detect_stack(d.path()).as_deref(), Some("tauri-react"));
     }
 }
+
+
+/// Whether CLAUDE.md / AGENTS.md exist in the project directory.
+pub fn agent_docs_status(project_dir: &std::path::Path) -> crate::types::AgentDocsStatus {
+    crate::types::AgentDocsStatus {
+        claude_md: project_dir.join("CLAUDE.md").is_file(),
+        agents_md: project_dir.join("AGENTS.md").is_file(),
+    }
+}
+
+/// Write CLAUDE.md / AGENTS.md for a registered project when missing (never overwrites). Returns the files written.
+pub async fn generate_agent_docs_if_missing(ctx: Arc<AppContext>, project_id: &str, description: &str) -> Result<Vec<String>> {
+    let project = ctx.db.get_project(project_id)?;
+    let dir = PathBuf::from(&project.path);
+    if !dir.is_dir() {
+        return Err(CoreError::msg(format!("디렉터리를 찾을 수 없습니다: {}", project.path)));
+    }
+    let stack = match &project.stack_id {
+        Some(id) => catalog::get(id)?,
+        None => None,
+    };
+    let docs = agent_docs::generate(&project, stack.as_ref(), description);
+    let mut written = Vec::new();
+    let claude = dir.join("CLAUDE.md");
+    if !claude.exists() {
+        std::fs::write(&claude, docs.claude_md)?;
+        written.push("CLAUDE.md".to_string());
+    }
+    let agents = dir.join("AGENTS.md");
+    if !agents.exists() {
+        std::fs::write(&agents, docs.agents_md)?;
+        written.push("AGENTS.md".to_string());
+    }
+    Ok(written)
+}

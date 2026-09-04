@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 use vibecode_core::projects::{catalog, scaffold};
-use vibecode_core::types::{CreateProjectRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
+use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
 
 use crate::state::{err, AppState};
 
@@ -55,4 +55,16 @@ pub async fn stacks_ai_recommend(state: State<'_, AppState>, req: StackRecommend
     let backend = state.ctx.backend().await;
     let bin = state.ctx.bin_override(req.provider).await;
     vibecode_core::projects::ai_recommend::recommend(backend, bin, req).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn projects_agent_docs_status(state: State<'_, AppState>, id: String) -> Result<AgentDocsStatus, String> {
+    let project = state.ctx.db.get_project(&id).map_err(err)?;
+    Ok(scaffold::agent_docs_status(std::path::Path::new(&project.path)))
+}
+
+/// Create CLAUDE.md / AGENTS.md for an externally created project (existing files are kept). Returns written file names.
+#[tauri::command]
+pub async fn projects_generate_agent_docs(state: State<'_, AppState>, id: String, description: Option<String>) -> Result<Vec<String>, String> {
+    scaffold::generate_agent_docs_if_missing(state.ctx.clone(), &id, description.as_deref().unwrap_or("")).await.map_err(err)
 }

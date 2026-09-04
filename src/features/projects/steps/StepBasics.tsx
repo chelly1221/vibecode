@@ -1,6 +1,8 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
+import { useAppStore } from "@/stores/app";
+import { registerExistingProject } from "../registerExisting";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,8 +26,30 @@ export function StepBasics() {
     }
   };
 
+  const setWizardOpen = useAppStore((s) => s.setWizardOpen);
+  const registerExisting = async () => {
+    try {
+      const picked = await openDialog({ directory: true, multiple: false, title: "등록할 프로젝트 폴더 선택" });
+      if (!picked) return;
+      await registerExistingProject(picked);
+      setWizardOpen(false);
+    } catch (e) {
+      toast.error(`프로젝트를 등록하지 못했습니다: ${e}`);
+    }
+  };
+
   return (
     <div className="grid gap-4">
+      <div className="grid gap-2 md:grid-cols-2">
+        <div className="rounded-lg border border-primary bg-primary/5 p-3 text-sm">
+          <div className="font-medium">새로 만들기</div>
+          <p className="text-xs text-muted-foreground">이름과 위치를 정하고 스택을 골라 스캐폴딩합니다. 아래를 채우고 다음으로 진행하세요.</p>
+        </div>
+        <button type="button" onClick={registerExisting} className="rounded-lg border p-3 text-left text-sm transition-colors hover:bg-accent/40">
+          <div className="font-medium">기존 폴더 등록</div>
+          <p className="text-xs text-muted-foreground">이 앱으로 만들지 않은 프로젝트 폴더를 그대로 등록합니다. 스택을 자동 감지하고 필요하면 CLAUDE.md/AGENTS.md를 만들어 줍니다.</p>
+        </button>
+      </div>
       <div className="grid gap-1.5">
         <Label htmlFor="wz-name">프로젝트 이름</Label>
         <Input

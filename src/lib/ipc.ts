@@ -3,6 +3,7 @@
 // Argument keys are camelCase (Tauri converts to the Rust snake_case params).
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { AgentDocsStatus } from "./bindings/AgentDocsStatus";
 import type { AgentQuestion } from "./bindings/AgentQuestion";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { CheckpointRecord } from "./bindings/CheckpointRecord";
@@ -95,7 +96,12 @@ export const ipc = {
     /** Streams ScaffoldEvents to `onEvent`; resolves with the created project. */
     create: (req: CreateProjectRequest, onEvent: (e: ScaffoldEvent) => void) =>
       invoke<ProjectRecord>("projects_create", { req, onEvent: channel(onEvent) }),
+    /** Register an existing directory (created outside the app); stack is detected heuristically. */
     open: (path: string) => invoke<ProjectRecord>("projects_open", { path }),
+    agentDocsStatus: (id: string) => invoke<AgentDocsStatus>("projects_agent_docs_status", { id }),
+    /** Write CLAUDE.md / AGENTS.md when missing; resolves with the file names written. */
+    generateAgentDocs: (id: string, description?: string) =>
+      invoke<string[]>("projects_generate_agent_docs", { id, description: description ?? null }),
     remove: (id: string) => invoke<void>("projects_remove", { id }),
     stacksList: () => invoke<StackInfo[]>("stacks_list"),
     stacksRecommend: (targetOs: TargetOs, projectType: ProjectType) =>
@@ -192,6 +198,7 @@ export const ipc = {
 };
 
 export type {
+  AgentDocsStatus,
   AgentQuestion,
   AppSettings,
   CheckpointRecord,
