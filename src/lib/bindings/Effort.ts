@@ -3,6 +3,6 @@
 /**
  * Unified effort scale. Adapters map it to provider-specific values:
  * Claude: low/medium/high/xhigh/max (minimal -> low)
- * Codex:  minimal/low/medium/high/xhigh (max -> xhigh)
+ * Codex:  minimal/low/medium/high/xhigh/max
  */
 export type Effort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

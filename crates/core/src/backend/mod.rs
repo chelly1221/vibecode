@@ -91,6 +91,12 @@ pub trait ExecBackend: Send + Sync {
     /// Human-readable label, e.g. "Windows" or "WSL (Ubuntu)".
     fn label(&self) -> String;
 
+    /// WSL distribution name when this backend runs inside WSL (used by callers that
+    /// must build a `wsl.exe` command themselves, e.g. the PTY manager).
+    fn wsl_distro(&self) -> Option<String> {
+        None
+    }
+
     /// Translate a host (Windows) path into the path the backend program sees.
     fn to_backend_path(&self, host: &Path) -> String;
 

@@ -30,7 +30,7 @@ impl Provider {
 
 /// Unified effort scale. Adapters map it to provider-specific values:
 /// Claude: low/medium/high/xhigh/max (minimal -> low)
-/// Codex:  minimal/low/medium/high/xhigh (max -> xhigh)
+/// Codex:  minimal/low/medium/high/xhigh/max
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, TS)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
@@ -59,7 +59,8 @@ impl Effort {
             Effort::Low => "low",
             Effort::Medium => "medium",
             Effort::High => "high",
-            Effort::XHigh | Effort::Max => "xhigh",
+            Effort::XHigh => "xhigh",
+            Effort::Max => "max",
         }
     }
 }

@@ -1,15 +1,28 @@
 //! Owns live sessions: starts adapters, persists transcripts, fans events out.
+//!
+//! Persisted `MessageRecord.payload` shapes (contract with the chat UI):
+//! - user:       `{ "text" }`
+//! - assistant:  `{ "text" }` (one per `SessionEvent::Text`)
+//! - tool:       `{ "id", "name", "input", "output", "is_error" }` (written on ToolEnd)
+//! - permission: `{ "request_id", "kind", "title", "detail", "decision" }` (on PermissionResolved)
+//! - system:     `{ "subtype": "turn_end", "cost_usd", "usage", "duration_ms", "stop_reason" }`,
+//!               `{ "subtype": "error", "message" }`, `{ "subtype": "init", "model", "external_ref" }`
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::mpsc::UnboundedReceiver;
+use chrono::Utc;
+use serde_json::{json, Value};
+use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio::sync::RwLock;
 
-use super::AgentSession;
+use super::{AgentSession, StartArgs};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
-use crate::types::{PermissionReply, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
+use crate::types::{MessageKind, PermissionReply, Provider, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
+
+pub const DEFAULT_TITLE: &str = "새 세션";
 
 #[derive(Default)]
 pub struct SessionManager {
@@ -25,12 +38,75 @@ impl SessionManager {
     /// persisted record and the event stream the UI should consume. Events are
     /// also written to the messages table before being forwarded.
     pub async fn start(&self, ctx: Arc<AppContext>, config: SessionConfig) -> Result<(SessionRecord, UnboundedReceiver<SessionEvent>)> {
-        let _ = (ctx, config);
-        Err(CoreError::NotImplemented("manager::start"))
+        let project = ctx.db.get_project(&config.project_id)?;
+        let backend = ctx.backend().await;
+        let bin = ctx.bin_override(config.provider).await;
+
+        // Resuming a known provider session continues its record; forks get a fresh one.
+        let existing = match (&config.resume_ref, config.fork) {
+            (Some(r), false) => ctx.db.list_sessions(&project.id)?.into_iter().find(|s| s.external_ref.as_deref() == Some(r.as_str())),
+            _ => None,
+        };
+        let now = Utc::now();
+        let mut record = match existing {
+            Some(mut rec) => {
+                rec.model = config.model.clone().or(rec.model);
+                rec.effort = config.effort.or(rec.effort);
+                rec.permission = config.permission;
+                rec.last_used_at = now;
+                rec
+            }
+            None => SessionRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                project_id: project.id.clone(),
+                provider: config.provider,
+                external_ref: if config.fork { None } else { config.resume_ref.clone() },
+                title: DEFAULT_TITLE.to_string(),
+                model: config.model.clone(),
+                effort: config.effort,
+                permission: config.permission,
+                total_cost_usd: 0.0,
+                created_at: now,
+                last_used_at: now,
+            },
+        };
+        if self.is_live(&record.id).await {
+            return Err(CoreError::msg("이 세션은 이미 실행 중입니다"));
+        }
+        ctx.db.upsert_session(&record)?;
+        ctx.db.touch_project(&project.id).ok();
+
+        let (adapter_tx, adapter_rx) = mpsc::unbounded_channel::<SessionEvent>();
+        let (ui_tx, ui_rx) = mpsc::unbounded_channel::<SessionEvent>();
+        let args = StartArgs {
+            session_id: record.id.clone(),
+            config: config.clone(),
+            cwd: PathBuf::from(&project.path),
+            backend: backend.clone(),
+            bin: bin.clone(),
+            events: adapter_tx,
+        };
+        let session: Arc<dyn AgentSession> = match config.provider {
+            Provider::Claude => {
+                let broker = ctx.permission_broker().await?;
+                super::claude::ClaudeSession::start(args, broker).await?
+            }
+            Provider::Codex => {
+                ctx.codex.ensure_started(backend.clone(), bin.clone()).await?;
+                ctx.codex.start_session(args).await?
+            }
+        };
+        self.live.write().await.insert(record.id.clone(), session);
+        record.last_used_at = Utc::now();
+
+        let ctx2 = ctx.clone();
+        let rec2 = record.clone();
+        tokio::spawn(async move { persist_and_forward(ctx2, rec2, adapter_rx, ui_tx).await });
+        Ok((record, ui_rx))
     }
 
     pub async fn get(&self, session_id: &str) -> Result<Arc<dyn AgentSession>> {
-        self.live.read().await.get(session_id).cloned().ok_or_else(|| CoreError::NotFound(format!("session {session_id}")))
+        self.live.read().await.get(session_id).cloned().ok_or_else(|| CoreError::NotFound(format!("session {session_id} is not running")))
     }
 
     pub async fn send(&self, session_id: &str, text: String) -> Result<()> {
@@ -50,7 +126,8 @@ impl SessionManager {
     }
 
     pub async fn close(&self, session_id: &str) -> Result<()> {
-        if let Some(s) = self.live.write().await.remove(session_id) {
+        let removed = self.live.write().await.remove(session_id);
+        if let Some(s) = removed {
             s.close().await?;
         }
         Ok(())
@@ -65,5 +142,123 @@ impl SessionManager {
 
     pub async fn is_live(&self, session_id: &str) -> bool {
         self.live.read().await.contains_key(session_id)
+    }
+
+    pub async fn live_ids(&self) -> Vec<String> {
+        self.live.read().await.keys().cloned().collect()
+    }
+
+    pub(crate) async fn remove_live(&self, session_id: &str) {
+        self.live.write().await.remove(session_id);
+    }
+}
+
+struct PendingTool {
+    name: String,
+    input: Value,
+}
+
+struct PendingPermission {
+    kind: Value,
+    title: String,
+    detail: Value,
+}
+
+/// Tee task: persist what the UI needs to reconstruct the transcript, then forward.
+async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mut rx: UnboundedReceiver<SessionEvent>, ui: mpsc::UnboundedSender<SessionEvent>) {
+    let sid = record.id.clone();
+    let mut tools: HashMap<String, PendingTool> = HashMap::new();
+    let mut perms: HashMap<String, PendingPermission> = HashMap::new();
+    let mut init_logged = false;
+    let db = &ctx.db;
+    while let Some(ev) = rx.recv().await {
+        let mut dirty = false;
+        match &ev {
+            SessionEvent::Init { model, external_ref, .. } => {
+                record.external_ref = Some(external_ref.clone());
+                record.model = Some(model.clone());
+                dirty = true;
+                if !init_logged {
+                    init_logged = true;
+                    log(db, &sid, MessageKind::System, json!({ "subtype": "init", "model": model, "external_ref": external_ref }));
+                }
+            }
+            SessionEvent::UserMessage { text } => {
+                if record.title == DEFAULT_TITLE {
+                    record.title = make_title(text);
+                    dirty = true;
+                }
+                log(db, &sid, MessageKind::User, json!({ "text": text }));
+            }
+            SessionEvent::Text { text } => log(db, &sid, MessageKind::Assistant, json!({ "text": text })),
+            SessionEvent::ToolStart { id, name, input } => {
+                tools.insert(id.clone(), PendingTool { name: name.clone(), input: input.clone() });
+            }
+            SessionEvent::ToolEnd { id, output, is_error } => {
+                let PendingTool { name, input } = tools.remove(id).unwrap_or(PendingTool { name: "unknown".into(), input: Value::Null });
+                log(db, &sid, MessageKind::Tool, json!({ "id": id, "name": name, "input": input, "output": output, "is_error": is_error }));
+            }
+            SessionEvent::PermissionRequest { request_id, kind, title, detail } => {
+                perms.insert(request_id.clone(), PendingPermission { kind: serde_json::to_value(kind).unwrap_or(Value::Null), title: title.clone(), detail: detail.clone() });
+            }
+            SessionEvent::PermissionResolved { request_id, decision } => {
+                let p = perms.remove(request_id).unwrap_or(PendingPermission { kind: Value::Null, title: String::new(), detail: Value::Null });
+                log(db, &sid, MessageKind::Permission, json!({ "request_id": request_id, "kind": p.kind, "title": p.title, "detail": p.detail, "decision": decision }));
+            }
+            SessionEvent::TurnEnd { cost_usd, usage, duration_ms, stop_reason } => {
+                if let Some(c) = cost_usd {
+                    // Claude reports cumulative session cost per result; keep the max, add for others.
+                    if record.provider == Provider::Claude {
+                        if *c > record.total_cost_usd {
+                            record.total_cost_usd = *c;
+                        }
+                    } else {
+                        record.total_cost_usd += c;
+                    }
+                }
+                dirty = true;
+                log(db, &sid, MessageKind::System, json!({ "subtype": "turn_end", "cost_usd": cost_usd, "usage": usage, "duration_ms": duration_ms, "stop_reason": stop_reason }));
+            }
+            SessionEvent::Error { message, .. } => log(db, &sid, MessageKind::System, json!({ "subtype": "error", "message": message })),
+            _ => {}
+        }
+        if dirty {
+            record.last_used_at = Utc::now();
+            if let Err(e) = db.upsert_session(&record) {
+                tracing::warn!("failed to persist session {sid}: {e}");
+            }
+        }
+        let exited = matches!(ev, SessionEvent::Exited { .. });
+        if ui.send(ev).is_err() {
+            // UI channel gone (window closed): keep persisting until the adapter ends.
+        }
+        if exited {
+            break;
+        }
+    }
+    ctx.sessions.remove_live(&sid).await;
+}
+
+fn log(db: &crate::db::Db, session_id: &str, kind: MessageKind, payload: Value) {
+    if let Err(e) = db.append_message(session_id, kind, payload) {
+        tracing::warn!("failed to persist message for {session_id}: {e}");
+    }
+}
+
+fn make_title(text: &str) -> String {
+    let one_line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t: String = one_line.chars().take(60).collect();
+    if t.trim().is_empty() { DEFAULT_TITLE.to_string() } else { t }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_trimming() {
+        assert_eq!(make_title("  hello\n  world  "), "hello world");
+        assert_eq!(make_title("   "), DEFAULT_TITLE);
+        assert_eq!(make_title(&"가".repeat(100)).chars().count(), 60);
     }
 }

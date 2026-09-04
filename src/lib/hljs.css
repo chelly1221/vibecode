@@ -1,0 +1,38 @@
+/* highlight.js theme driven by CSS variables so it follows the app's light/dark mode. */
+:root {
+  --hljs-fg: #24292e;
+  --hljs-comment: #6a737d;
+  --hljs-keyword: #d73a49;
+  --hljs-string: #032f62;
+  --hljs-number: #005cc5;
+  --hljs-title: #6f42c1;
+  --hljs-builtin: #e36209;
+  --hljs-meta: #735c0f;
+  --hljs-addition-bg: #f0fff4;
+  --hljs-deletion-bg: #ffeef0;
+}
+.dark {
+  --hljs-fg: #c9d1d9;
+  --hljs-comment: #8b949e;
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-title: #d2a8ff;
+  --hljs-builtin: #ffa657;
+  --hljs-meta: #ffa657;
+  --hljs-addition-bg: #033a16;
+  --hljs-deletion-bg: #67060c;
+}
+.hljs { color: var(--hljs-fg); background: transparent; }
+.hljs-comment, .hljs-quote { color: var(--hljs-comment); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-template-tag, .hljs-variable.language_ { color: var(--hljs-keyword); }
+.hljs-string, .hljs-regexp, .hljs-meta .hljs-string { color: var(--hljs-string); }
+.hljs-number, .hljs-literal, .hljs-attr, .hljs-variable, .hljs-template-variable, .hljs-selector-attr,
+.hljs-selector-class, .hljs-selector-pseudo, .hljs-operator, .hljs-property { color: var(--hljs-number); }
+.hljs-title, .hljs-title.class_, .hljs-title.function_, .hljs-section { color: var(--hljs-title); }
+.hljs-built_in, .hljs-symbol, .hljs-type, .hljs-name, .hljs-selector-id { color: var(--hljs-builtin); }
+.hljs-meta, .hljs-bullet, .hljs-link { color: var(--hljs-meta); }
+.hljs-addition { background: var(--hljs-addition-bg); }
+.hljs-deletion { background: var(--hljs-deletion-bg); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }

@@ -57,6 +57,10 @@ impl ExecBackend for WslBackend {
         format!("WSL ({})", self.distro)
     }
 
+    fn wsl_distro(&self) -> Option<String> {
+        Some(self.distro.clone())
+    }
+
     fn to_backend_path(&self, host: &Path) -> String {
         paths::windows_to_wsl(host)
     }

@@ -22,13 +22,14 @@ Windows 데스크톱(exe)용 GUI 바이브코딩 도구. Claude Code와 OpenAI C
 
 ### 1.3 이후 범위(v1.1+)
 - 에이전트 턴마다 자동 체크포인트(shadow 브랜치)와 롤백
-- WSL 실행 백엔드(Windows 네이티브 vs WSL 배포판 선택)
 - 두 에이전트 협업(Claude가 구현, Codex가 리뷰 등 파이프라인)
 - 자동 업데이트, 코드 서명, 원격 저장소 외 GitLab 지원
 
 ---
 
 ## 2. 아키텍처
+
+> 구현 메모(2026-09-04): 코어는 `crates/core`(Tauri 비의존)와 `src-tauri`(얇은 셸)로 분리했다. 실행 백엔드(Native/WSL)는 `crates/core/src/backend/`에 있다. 빌드는 WSL에서 Windows 툴체인(cargo.exe, node.exe)을 직접 호출해 진행한다.
 
 ```
 ┌───────────────────────────── Tauri v2 (WebView2) ─────────────────────────────┐
@@ -267,4 +268,4 @@ M2에서 가장 먼저 검증할 것: Windows에서 stream-json 양방향 스트
 1. **배포하지 않고 개인용으로만 사용한다.** (2026-09-04 확정) 따라서 8-1의 약관·브랜딩 제약은 적용되지 않으며, 인증은 API 키가 아니라 **각 CLI의 구독 로그인(claude 로그인, codex login)을 그대로 사용**한다. 앱은 로그인 상태만 확인하고, 로그인 자체는 내장 터미널에서 실행한다.
 2. 프론트엔드 프레임워크: 미정. 후보 비교는 대화 기록 참조. 결정 후 M0 시작.
 3. GitHub OAuth App: MVP는 PAT/SSH로 시작하고 디바이스 플로우는 후순위.
-4. WSL 백엔드: v1.1로 미룸.
+4. **WSL 실행 백엔드는 v1에 포함한다.** (2026-09-04 변경) 이 PC는 Claude Code가 WSL(Ubuntu)에만 설치·로그인되어 있고 Windows 쪽에는 claude.exe와 Git for Windows가 없다. 앱은 Windows에서 실행되지만 에이전트·git·스캐폴딩은 `ExecBackend` 추상화(Native | Wsl)를 통해 실행하며, 경로는 `C:\...` ↔ `/mnt/c/...`로 변환한다. 인터럽트는 WSL에서 pid 마커를 이용해 `kill -INT`로 보낸다.

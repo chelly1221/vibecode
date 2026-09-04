@@ -1,12 +1,509 @@
-# Stack catalog. Filled in by projects/catalog implementation. See docs/PLAN.md 4.1.
+# Stack catalog for the project wizard. Loaded by projects/catalog.rs.
+# targets: windows | macos | linux | cross_desktop | web | android | ios | server
+# types:   desktop_app | web_app | mobile_app | cli | api_server | library | game | script
+# scaffold_cmd runs in the parent directory; {name} is replaced by the project name.
+# It must be non-interactive and must work both in PowerShell 5.1 (native) and bash (WSL):
+# no shell operators (&&, |, redirects), single command only.
+
+# ---------------------------------------------------------------- desktop
 [[stack]]
-id = "placeholder"
-name = "Placeholder"
-summary = "replace me"
-targets = []
-types = []
-languages = []
-prerequisites = []
-pros = []
-cons = []
+id = "tauri-react"
+name = "Tauri 2 + Rust + React/TS"
+summary = "Rust 백엔드와 WebView 프론트로 가볍고 빠른 데스크톱 앱. 이 도구(vibecode)와 같은 스택."
+targets = ["windows", "macos", "linux", "cross_desktop"]
+types = ["desktop_app"]
+languages = ["Rust", "TypeScript"]
+scaffold_cmd = "npm create tauri-app@latest {name} -- --template react-ts --manager npm --yes"
+prerequisites = ["node", "npm", "cargo", "rustup"]
+pros = ["설치 파일이 작고(수 MB) 메모리 사용이 적음", "Rust로 시스템 접근·성능 확보", "웹 생태계(React, Tailwind) 그대로 활용"]
+cons = ["Rust 학습 곡선", "WebView 버전 차이로 렌더링이 OS마다 다를 수 있음", "빌드 시간이 긴 편"]
+recommended = true
+agent_notes = """
+- 의존성 설치: `npm install`
+- 개발 실행: `npm run tauri dev`
+- 빌드(설치본): `npm run tauri build`
+- Rust 검사/테스트: `cargo check` / `cargo test` (src-tauri 디렉터리)
+- 프론트 타입검사: `npx tsc --noEmit`
+- IPC는 `#[tauri::command]`로 노출하고 프론트에서 `invoke()`로 호출. 파일/프로세스 접근은 Rust 쪽에서.
+"""
+
+[[stack]]
+id = "dotnet-wpf"
+name = ".NET 8 WPF (C#)"
+summary = "Windows 전용 네이티브 데스크톱 앱. XAML UI, Visual Studio 친화적."
+targets = ["windows"]
+types = ["desktop_app"]
+languages = ["C#", "XAML"]
+scaffold_cmd = "dotnet new wpf -o {name}"
+prerequisites = ["dotnet"]
+pros = ["Windows 네이티브 룩앤필과 완전한 OS API 접근", "성숙한 도구(Visual Studio, 디자이너)", "단일 exe 배포 가능"]
+cons = ["Windows 전용", "WinUI 3 대비 최신 디자인 시스템은 직접 구성해야 함"]
 recommended = false
+agent_notes = """
+- 빌드: `dotnet build`
+- 실행: `dotnet run`
+- 테스트: `dotnet test` (테스트 프로젝트 추가 후)
+- 배포: `dotnet publish -c Release -r win-x64 --self-contained`
+- MVVM 패턴(CommunityToolkit.Mvvm 권장)으로 View와 로직 분리. WinUI 3로 가려면 `dotnet new install Microsoft.WindowsAppSDK.Templates` 후 `dotnet new winui`.
+"""
+
+[[stack]]
+id = "electron-vite"
+name = "Electron + Vite + React/TS"
+summary = "Chromium 내장 데스크톱 앱. Node API를 그대로 쓰며 웹 개발자에게 가장 익숙함."
+targets = ["windows", "macos", "linux", "cross_desktop"]
+types = ["desktop_app"]
+languages = ["TypeScript"]
+scaffold_cmd = "npm create @quick-start/electron@latest {name} -- --template react-ts"
+prerequisites = ["node", "npm"]
+pros = ["Node.js 생태계와 npm 패키지 전부 사용 가능", "렌더링이 모든 OS에서 동일(Chromium 내장)", "자료와 예제가 매우 많음"]
+cons = ["설치본 100MB+, 메모리 사용 큼", "보안 설정(contextIsolation, preload)을 직접 신경 써야 함"]
+recommended = false
+agent_notes = """
+- 의존성 설치: `npm install`
+- 개발 실행: `npm run dev`
+- 빌드: `npm run build` / Windows 설치본: `npm run build:win`
+- main(Node) / preload / renderer(React) 3계층 구조. renderer에서 Node API 직접 접근 금지, preload의 contextBridge로 노출.
+"""
+
+[[stack]]
+id = "flutter-desktop"
+name = "Flutter (데스크톱)"
+summary = "Dart 하나로 Windows·macOS·Linux 데스크톱 앱. 자체 렌더러라 UI가 일관됨."
+targets = ["windows", "macos", "linux", "cross_desktop"]
+types = ["desktop_app"]
+languages = ["Dart"]
+scaffold_cmd = "flutter create --platforms=windows,macos,linux {name}"
+prerequisites = ["flutter"]
+pros = ["모바일과 코드 공유 가능", "일관된 UI와 높은 애니메이션 성능", "핫 리로드"]
+cons = ["데스크톱 생태계(플러그인)가 모바일보다 얇음", "네이티브 룩앤필은 직접 구현", "Windows 빌드에 Visual Studio C++ 도구 필요"]
+recommended = false
+agent_notes = """
+- 의존성: `flutter pub get`
+- 실행: `flutter run -d windows`
+- 테스트: `flutter test`
+- 빌드: `flutter build windows`
+- 상태 관리는 Riverpod 또는 Provider 중 하나로 통일.
+"""
+
+# ---------------------------------------------------------------- web
+[[stack]]
+id = "nextjs"
+name = "Next.js (React, App Router)"
+summary = "SSR/SSG와 API 라우트를 갖춘 풀스택 React 프레임워크. Vercel 배포에 최적."
+targets = ["web", "server"]
+types = ["web_app"]
+languages = ["TypeScript"]
+scaffold_cmd = "npx -y create-next-app@latest {name} --ts --tailwind --eslint --app --src-dir --use-npm --yes"
+prerequisites = ["node", "npm"]
+pros = ["SEO·초기 로딩에 유리한 서버 렌더링", "API 라우트/서버 액션으로 백엔드까지 한 프로젝트", "생태계·자료 최다"]
+cons = ["서버/클라이언트 컴포넌트 경계 학습 필요", "빌드·번들이 무거움", "Vercel 외 호스팅은 설정이 늘어남"]
+recommended = true
+agent_notes = """
+- 의존성: `npm install`
+- 개발: `npm run dev`
+- 빌드/타입검사: `npm run build` / `npx tsc --noEmit`
+- 린트: `npm run lint`
+- App Router(`src/app`) 사용. 데이터 패칭은 서버 컴포넌트에서, 상호작용만 `"use client"`.
+"""
+
+[[stack]]
+id = "sveltekit"
+name = "SvelteKit"
+summary = "코드량이 적고 빠른 풀스택 프레임워크. Svelte 5 runes."
+targets = ["web", "server"]
+types = ["web_app"]
+languages = ["TypeScript", "Svelte"]
+scaffold_cmd = "npx -y sv create --template minimal --types ts --no-add-ons --no-install {name}"
+prerequisites = ["node", "npm"]
+pros = ["보일러플레이트가 적고 번들이 작음", "SSR/SPA/정적 사이트 전환이 쉬움", "학습 곡선 완만"]
+cons = ["React보다 생태계·컴포넌트 라이브러리가 적음", "Svelte 5 runes 문법 자료가 아직 혼재"]
+recommended = false
+agent_notes = """
+- 의존성: `npm install`
+- 개발: `npm run dev`
+- 빌드/검사: `npm run build` / `npm run check`
+- Svelte 5 runes(`$state`, `$derived`, `$props`)만 사용. 구버전 `export let`/store 문법 혼용 금지.
+"""
+
+[[stack]]
+id = "vite-react"
+name = "Vite + React SPA"
+summary = "서버 없는 순수 클라이언트 웹앱. 정적 호스팅에 올리기 가장 간단."
+targets = ["web"]
+types = ["web_app"]
+languages = ["TypeScript"]
+scaffold_cmd = "npm create vite@latest {name} -- --template react-ts"
+prerequisites = ["node", "npm"]
+pros = ["설정이 단순하고 개발 서버가 매우 빠름", "어디에나(정적 호스팅, S3, GitHub Pages) 배포", "백엔드는 자유롭게 별도 구성"]
+cons = ["SSR/SEO 없음", "라우팅·데이터 패칭 라이브러리를 직접 선택"]
+recommended = false
+agent_notes = """
+- 의존성: `npm install`
+- 개발: `npm run dev`
+- 빌드/타입검사: `npm run build` (tsc 포함)
+- 라우팅은 react-router, 서버 상태는 TanStack Query 권장. 스타일은 Tailwind.
+"""
+
+[[stack]]
+id = "astro"
+name = "Astro"
+summary = "콘텐츠 중심 사이트(블로그, 문서, 랜딩). 기본 JS 0, 필요한 곳만 아일랜드."
+targets = ["web"]
+types = ["web_app"]
+languages = ["TypeScript", "Astro"]
+scaffold_cmd = "npm create astro@latest {name} -- --template minimal --no-install --no-git --yes --skip-houston"
+prerequisites = ["node", "npm"]
+pros = ["매우 빠른 정적 페이지", "마크다운/MDX 콘텐츠 컬렉션 내장", "React/Svelte 등 컴포넌트 혼용 가능"]
+cons = ["복잡한 상호작용 앱에는 부적합", "아일랜드 하이드레이션 개념 학습 필요"]
+recommended = false
+agent_notes = """
+- 의존성: `npm install`
+- 개발: `npm run dev`
+- 빌드/검사: `npm run build` / `npx astro check`
+- 콘텐츠는 `src/content/` 컬렉션으로 관리하고 스키마(zod)를 정의.
+"""
+
+# ---------------------------------------------------------------- api / server
+[[stack]]
+id = "fastapi"
+name = "FastAPI (Python, uv)"
+summary = "타입 힌트 기반의 빠른 Python API 서버. 자동 OpenAPI 문서."
+targets = ["server", "linux", "windows"]
+types = ["api_server"]
+languages = ["Python"]
+scaffold_cmd = "uv init {name}"
+prerequisites = ["uv", "python"]
+pros = ["짧은 코드로 검증·문서화까지 자동", "Python 데이터/AI 생태계와 바로 연결", "비동기 지원"]
+cons = ["CPU 바운드 작업 성능 한계", "배포 시 프로세스 매니저(uvicorn workers) 구성 필요"]
+recommended = true
+agent_notes = """
+- 의존성 추가: `uv add fastapi "uvicorn[standard]"`; 설치 동기화: `uv sync`
+- 실행: `uv run uvicorn main:app --reload`
+- 테스트: `uv run pytest`
+- 린트/포맷: `uv run ruff check .` / `uv run ruff format .`
+- 라우터는 `app/routers/`로 분리, 스키마는 pydantic 모델로.
+"""
+
+[[stack]]
+id = "hono"
+name = "Hono (TypeScript)"
+summary = "가볍고 표준(Web API) 기반인 TS 서버. Node/Bun/Cloudflare Workers 어디서나."
+targets = ["server", "web"]
+types = ["api_server"]
+languages = ["TypeScript"]
+scaffold_cmd = "npm create hono@latest {name} -- --template nodejs --pm npm --install"
+prerequisites = ["node", "npm"]
+pros = ["매우 작고 빠름", "엣지 런타임 이식성", "타입 안전한 라우팅·검증(zod)"]
+cons = ["NestJS 같은 구조 강제가 없어 규모가 커지면 직접 설계 필요", "생태계가 Express보다 작음"]
+recommended = false
+agent_notes = """
+- 의존성: `npm install`
+- 개발: `npm run dev`
+- 빌드/타입검사: `npx tsc --noEmit`
+- 라우트를 파일별로 분리하고 `app.route()`로 조합. 입력 검증은 `@hono/zod-validator`.
+"""
+
+[[stack]]
+id = "nestjs"
+name = "NestJS (TypeScript)"
+summary = "모듈·DI 구조가 강제되는 엔터프라이즈형 Node 서버 프레임워크."
+targets = ["server"]
+types = ["api_server"]
+languages = ["TypeScript"]
+scaffold_cmd = "npx -y @nestjs/cli@latest new {name} --package-manager npm --skip-git --skip-install --strict"
+prerequisites = ["node", "npm"]
+pros = ["구조가 명확해 팀·대규모에 유리", "테스트·문서·마이크로서비스 지원 내장", "Angular 스타일 DI"]
+cons = ["보일러플레이트가 많음", "작은 API에는 과함"]
+recommended = false
+agent_notes = """
+- 의존성: `npm install`
+- 개발: `npm run start:dev`
+- 테스트: `npm test` / e2e: `npm run test:e2e`
+- 빌드: `npm run build`
+- 기능 단위로 module/controller/service 3종 세트 생성(`npx nest g resource <name>`).
+"""
+
+[[stack]]
+id = "axum"
+name = "Axum (Rust)"
+summary = "Tokio 기반의 고성능 Rust 웹 서버. 타입 안전한 추출기."
+targets = ["server", "linux", "windows"]
+types = ["api_server"]
+languages = ["Rust"]
+scaffold_cmd = "cargo new {name}"
+prerequisites = ["cargo", "rustup"]
+pros = ["최고 수준의 성능과 낮은 메모리", "컴파일 타임에 잡히는 오류", "단일 바이너리 배포"]
+cons = ["개발 속도가 Python/TS보다 느림", "컴파일 시간", "ORM 생태계(sqlx/sea-orm) 학습"]
+recommended = false
+agent_notes = """
+- 의존성 추가: `cargo add axum tokio --features tokio/full` , `cargo add serde --features derive` , `cargo add serde_json tower-http`
+- 실행: `cargo run`
+- 테스트: `cargo test`
+- 검사: `cargo clippy --all-targets`
+- 라우터는 모듈별 `Router`를 `merge`/`nest`로 조합. 상태는 `State<Arc<AppState>>`.
+"""
+
+[[stack]]
+id = "spring-boot"
+name = "Spring Boot (Kotlin/Java)"
+summary = "JVM 표준 엔터프라이즈 서버. 방대한 생태계와 안정성."
+targets = ["server"]
+types = ["api_server"]
+languages = ["Kotlin", "Java"]
+prerequisites = ["java"]
+pros = ["가장 성숙한 서버 생태계(보안, 데이터, 배치)", "대기업/공공 프로젝트 호환성", "강력한 IDE 지원"]
+cons = ["기동 시간·메모리 사용 큼", "설정 학습량 많음"]
+recommended = false
+agent_notes = """
+- 프로젝트 생성: https://start.spring.io 에서 Gradle-Kotlin, Spring Web, Validation 선택 후 zip을 이 디렉터리에 풀기 (또는 `curl https://start.spring.io/starter.tgz -d type=gradle-project-kotlin -d language=kotlin -d dependencies=web,validation -d name=<name> | tar -xz`)
+- 실행: `./gradlew bootRun` (Windows: `gradlew.bat bootRun`)
+- 테스트: `./gradlew test`
+- 빌드: `./gradlew build`
+- 계층: controller → service → repository. DTO는 data class로.
+"""
+
+[[stack]]
+id = "aspnet-webapi"
+name = "ASP.NET Core Web API (C#)"
+summary = ".NET 기반 고성능 API 서버. Windows 서버·Azure와 궁합."
+targets = ["server", "windows", "linux"]
+types = ["api_server"]
+languages = ["C#"]
+scaffold_cmd = "dotnet new webapi -o {name}"
+prerequisites = ["dotnet"]
+pros = ["높은 성능과 강한 타입", "Entity Framework·Identity 등 공식 라이브러리 풍부", "Visual Studio 디버깅"]
+cons = ["Microsoft 생태계 의존", "Python/Node 대비 빠른 프로토타이핑에는 불리"]
+recommended = false
+agent_notes = """
+- 빌드: `dotnet build`
+- 실행: `dotnet run` (Swagger: /swagger)
+- 테스트: `dotnet test`
+- Minimal API 또는 Controller 중 하나로 통일. DTO는 record 타입.
+"""
+
+# ---------------------------------------------------------------- mobile
+[[stack]]
+id = "flutter-mobile"
+name = "Flutter (모바일)"
+summary = "Dart 하나로 Android·iOS 앱. 일관된 UI와 빠른 개발."
+targets = ["android", "ios"]
+types = ["mobile_app"]
+languages = ["Dart"]
+scaffold_cmd = "flutter create {name}"
+prerequisites = ["flutter"]
+pros = ["한 코드로 양쪽 플랫폼", "핫 리로드와 풍부한 위젯", "성능이 네이티브에 가까움"]
+cons = ["iOS 빌드는 macOS 필요", "플랫폼 고유 기능은 플러그인/채널 필요"]
+recommended = true
+agent_notes = """
+- 의존성: `flutter pub get`
+- 실행: `flutter run` (에뮬레이터/기기 연결 필요)
+- 테스트: `flutter test`
+- 빌드: `flutter build apk` / `flutter build ios`(macOS)
+- 상태 관리는 Riverpod로 통일. 화면은 `lib/features/<name>/`.
+"""
+
+[[stack]]
+id = "expo"
+name = "Expo (React Native, TS)"
+summary = "React로 만드는 Android·iOS 앱. Expo Go로 즉시 테스트."
+targets = ["android", "ios"]
+types = ["mobile_app"]
+languages = ["TypeScript"]
+scaffold_cmd = "npx -y create-expo-app@latest {name} --template blank-typescript --yes --no-install"
+prerequisites = ["node", "npm"]
+pros = ["React 지식 재사용", "Expo Go로 빌드 없이 기기 테스트", "EAS로 클라우드 빌드(iOS도 Windows에서 가능)"]
+cons = ["네이티브 모듈 추가 시 prebuild 필요", "Flutter보다 UI 일관성이 낮음"]
+recommended = false
+agent_notes = """
+- 의존성: `npm install`
+- 실행: `npx expo start`
+- 타입검사: `npx tsc --noEmit`
+- 라우팅은 expo-router(파일 기반). 네이티브 모듈은 Expo SDK 우선.
+"""
+
+[[stack]]
+id = "kotlin-android"
+name = "Kotlin + Jetpack Compose (Android)"
+summary = "Android 공식 네이티브 스택. 최고 수준의 OS 통합."
+targets = ["android"]
+types = ["mobile_app"]
+languages = ["Kotlin"]
+prerequisites = ["java"]
+pros = ["최신 Android 기능 즉시 사용", "성능·배터리 최적", "Android Studio 도구 완성도"]
+cons = ["Android 전용", "Gradle 빌드 느림", "프로젝트 생성은 Android Studio에서 해야 함"]
+recommended = false
+agent_notes = """
+- 프로젝트 생성: Android Studio → New Project → Empty Activity(Compose) 로 이 디렉터리에 생성
+- 빌드: `./gradlew assembleDebug` (Windows: `gradlew.bat`)
+- 테스트: `./gradlew test`
+- UI는 Compose, 아키텍처는 ViewModel + Repository, DI는 Hilt.
+"""
+
+[[stack]]
+id = "swift-ios"
+name = "Swift + SwiftUI (iOS)"
+summary = "iOS 공식 네이티브 스택. macOS와 Xcode가 필요."
+targets = ["ios"]
+types = ["mobile_app"]
+languages = ["Swift"]
+prerequisites = []
+pros = ["iOS 기능·디자인 시스템과 완벽 통합", "성능 최적"]
+cons = ["macOS + Xcode 필수 — Windows에서는 빌드 불가", "iOS 전용"]
+recommended = false
+agent_notes = """
+- macOS에서 Xcode로 프로젝트 생성(App, SwiftUI). Windows에서는 편집만 가능.
+- 빌드/테스트: `xcodebuild -scheme <App> build` / `xcodebuild test -destination 'platform=iOS Simulator,name=iPhone 15'`
+- SwiftUI + MVVM. 네트워크는 async/await URLSession.
+"""
+
+# ---------------------------------------------------------------- cli
+[[stack]]
+id = "rust-cli"
+name = "Rust CLI (clap)"
+summary = "단일 바이너리로 배포되는 빠른 CLI 도구."
+targets = ["windows", "macos", "linux", "cross_desktop"]
+types = ["cli", "library"]
+languages = ["Rust"]
+scaffold_cmd = "cargo new {name}"
+prerequisites = ["cargo", "rustup"]
+pros = ["의존성 없는 단일 실행 파일", "빠르고 메모리 안전", "cargo 도구 체인 우수"]
+cons = ["컴파일 시간", "학습 곡선"]
+recommended = true
+agent_notes = """
+- 의존성 추가: `cargo add clap --features derive` , `cargo add anyhow`
+- 실행: `cargo run -- <args>`
+- 테스트: `cargo test`
+- 검사: `cargo clippy --all-targets -- -D warnings` / 포맷: `cargo fmt`
+- 인자 파싱은 clap derive. 오류는 anyhow/thiserror.
+"""
+
+[[stack]]
+id = "go-cli"
+name = "Go CLI (cobra)"
+summary = "빠른 컴파일과 간단한 배포의 CLI. 크로스 컴파일이 쉬움."
+targets = ["windows", "macos", "linux", "cross_desktop"]
+types = ["cli"]
+languages = ["Go"]
+scaffold_cmd = "go mod init {name}"
+prerequisites = ["go"]
+pros = ["컴파일이 매우 빠름", "GOOS/GOARCH로 크로스 빌드 한 줄", "표준 라이브러리가 풍부"]
+cons = ["제너릭·에러 처리 스타일이 장황", "GUI 생태계 약함"]
+recommended = false
+agent_notes = """
+- 주의: `go mod init`은 현재 디렉터리에서 실행됨. 프로젝트 디렉터리를 만든 뒤 그 안에서 `go mod init <module>`을 실행하고 `main.go`를 추가.
+- 의존성: `go get github.com/spf13/cobra@latest`
+- 실행: `go run .` / 빌드: `go build -o bin/`
+- 테스트: `go test ./...`
+"""
+
+[[stack]]
+id = "python-typer"
+name = "Python CLI (typer, uv)"
+summary = "타입 힌트로 CLI를 만드는 가장 빠른 방법. 스크립트에서 도구로 승격할 때."
+targets = ["windows", "macos", "linux", "cross_desktop"]
+types = ["cli", "script"]
+languages = ["Python"]
+scaffold_cmd = "uv init {name}"
+prerequisites = ["uv", "python"]
+pros = ["개발 속도 최고", "풍부한 라이브러리", "uv로 의존성·가상환경 관리가 간단"]
+cons = ["배포 시 Python 런타임 필요(PyInstaller로 우회)", "실행 속도"]
+recommended = false
+agent_notes = """
+- 의존성 추가: `uv add typer rich`
+- 실행: `uv run python main.py`
+- 테스트: `uv run pytest`
+- 린트/포맷: `uv run ruff check .` / `uv run ruff format .`
+"""
+
+# ---------------------------------------------------------------- script / automation
+[[stack]]
+id = "python-uv"
+name = "Python 스크립트/자동화 (uv)"
+summary = "데이터 처리, 자동화, 실험용 Python 프로젝트."
+targets = ["windows", "macos", "linux", "cross_desktop", "server"]
+types = ["script", "library"]
+languages = ["Python"]
+scaffold_cmd = "uv init {name}"
+prerequisites = ["uv", "python"]
+pros = ["가장 빠른 프로토타이핑", "데이터/AI 라이브러리 생태계", "uv로 재현 가능한 환경"]
+cons = ["성능", "타입 안정성은 선택(mypy/pyright)"]
+recommended = true
+agent_notes = """
+- 의존성 추가: `uv add <pkg>` / 동기화: `uv sync`
+- 실행: `uv run python main.py`
+- 테스트: `uv run pytest`
+- 린트/포맷: `uv run ruff check .` / `uv run ruff format .`
+- 스크립트가 커지면 `src/<pkg>/`로 패키지화.
+"""
+
+[[stack]]
+id = "powershell"
+name = "PowerShell 스크립트"
+summary = "Windows 관리·자동화 작업. 추가 설치 없이 실행."
+targets = ["windows"]
+types = ["script"]
+languages = ["PowerShell"]
+prerequisites = []
+pros = ["Windows에 기본 내장", "시스템 관리 cmdlet 풍부", "작업 스케줄러와 바로 연동"]
+cons = ["크로스 플랫폼 제한(PowerShell 7 필요)", "대규모 프로젝트에는 부적합"]
+recommended = false
+agent_notes = """
+- 실행: `powershell -ExecutionPolicy Bypass -File .\\main.ps1`
+- 테스트: Pester (`Invoke-Pester`)
+- 함수는 `Verb-Noun` 명명, `[CmdletBinding()]`과 매개변수 검증 사용. `Set-StrictMode -Version Latest`.
+"""
+
+# ---------------------------------------------------------------- game
+[[stack]]
+id = "godot"
+name = "Godot 4 (GDScript/C#)"
+summary = "오픈소스 2D/3D 게임 엔진. 가볍고 스크립팅이 쉬움."
+targets = ["windows", "macos", "linux", "cross_desktop", "android", "ios", "web"]
+types = ["game"]
+languages = ["GDScript", "C#"]
+prerequisites = []
+pros = ["무료·오픈소스, 라이선스 걱정 없음", "2D에 특히 강함", "에디터가 가볍고 빠름"]
+cons = ["콘솔 지원은 제3자 필요", "3D AAA 수준 렌더링은 Unity/Unreal 대비 약함"]
+recommended = true
+agent_notes = """
+- 프로젝트 생성: Godot 에디터에서 이 디렉터리를 프로젝트로 생성(project.godot).
+- 실행: `godot --path . ` / 헤드리스 테스트: `godot --headless --script tests/run.gd`
+- 씬(.tscn)과 스크립트(.gd)를 1:1로 두고, 시그널로 결합도 낮추기.
+"""
+
+[[stack]]
+id = "unity"
+name = "Unity (C#)"
+summary = "가장 널리 쓰이는 상용 게임 엔진. 에셋 스토어와 자료가 방대."
+targets = ["windows", "macos", "android", "ios", "web", "cross_desktop"]
+types = ["game"]
+languages = ["C#"]
+prerequisites = ["dotnet"]
+pros = ["자료·에셋·구인 시장 최대", "모바일/콘솔/PC 전 플랫폼", "강력한 3D 파이프라인"]
+cons = ["라이선스 정책 변동", "프로젝트 용량 크고 에디터 무거움", "Unity Hub로 생성해야 함"]
+recommended = false
+agent_notes = """
+- 프로젝트 생성: Unity Hub → New project (2D/3D Core) → 이 디렉터리 선택
+- 테스트: Unity Test Framework (EditMode/PlayMode), CLI: `Unity -batchmode -runTests -projectPath .`
+- 스크립트는 Assets/Scripts, ScriptableObject로 데이터 분리.
+"""
+
+[[stack]]
+id = "bevy"
+name = "Bevy (Rust)"
+summary = "ECS 기반 Rust 게임 엔진. 코드 중심 개발."
+targets = ["windows", "macos", "linux", "cross_desktop", "web"]
+types = ["game"]
+languages = ["Rust"]
+scaffold_cmd = "cargo new {name}"
+prerequisites = ["cargo", "rustup"]
+pros = ["데이터 지향 ECS로 확장성 좋음", "Rust 안전성·성능", "에디터 없이 코드로 전부 제어"]
+cons = ["API가 자주 바뀜(버전 고정 필수)", "비주얼 에디터 부재", "컴파일 시간"]
+recommended = false
+agent_notes = """
+- 의존성 추가: `cargo add bevy` (버전 고정), 개발 프로파일에 `opt-level = 1`, 의존성 `opt-level = 3` 설정, `dynamic_linking` 피처로 반복 빌드 단축
+- 실행: `cargo run`
+- 테스트: `cargo test`
+- 시스템/컴포넌트/리소스로 분리, 플러그인 단위로 모듈화.
+"""

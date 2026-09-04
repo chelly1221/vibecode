@@ -32,3 +32,4 @@ __pycache__/
 Thumbs.db
 /target
 src-tauri/gen/schemas
+.tmp/
