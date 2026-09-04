@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use serde_json::{json, Value};
 
-use crate::types::{Effort, ModelInfo, PermissionDecision, PermissionKind, PermissionPreset, PlanStep, Provider, SessionEvent, Usage};
+use crate::types::{AgentQuestion, Effort, ModelInfo, PermissionDecision, PermissionKind, PermissionPreset, PlanStep, Provider, QuestionAnswer, QuestionOption, SessionEvent, Usage};
 
 use super::rpc::id_key;
 
@@ -414,6 +414,15 @@ fn error_message(err: &Value) -> String {
 /// Translate a server-initiated request into a PermissionRequest (registering it as
 /// pending). `None` means the request is unsupported and should get an error response.
 pub fn map_server_request(state: &mut MapState, id: &Value, method: &str, params: &Value) -> Option<SessionEvent> {
+    if method == "item/tool/requestUserInput" {
+        // Structured questions: `questions[{id, header, question, isOther, isSecret, options[{label, description}] | null}]`.
+        let questions = codex_questions(params);
+        if !questions.is_empty() {
+            let key = id_key(id);
+            state.pending.insert(key.clone(), PendingApproval { rpc_id: id.clone(), method: method.to_string(), params: params.clone() });
+            return Some(SessionEvent::Question { request_id: key, questions });
+        }
+    }
     let (kind, title) = match method {
         "item/commandExecution/requestApproval" => {
             let cmd = s(params, "command").map(|c| c.to_string()).unwrap_or_else(|| "Run command".into());
@@ -444,6 +453,81 @@ pub fn map_server_request(state: &mut MapState, id: &Value, method: &str, params
     let key = id_key(id);
     state.pending.insert(key.clone(), PendingApproval { rpc_id: id.clone(), method: method.to_string(), params: params.clone() });
     Some(SessionEvent::PermissionRequest { request_id: key, kind, title, detail: params.clone() })
+}
+
+/// Config overrides for `thread/start|resume|fork` (`config: {<key path>: value}`) declaring the
+/// user's MCP servers the way `~/.codex/config.toml` `[mcp_servers.<name>]` does:
+/// stdio `{command, args, env}` / http `{url}`. Dotted keys merge per server, so user-defined
+/// servers in config.toml are left untouched.
+pub fn mcp_config_overrides(servers: &[crate::types::McpServerConfig]) -> serde_json::Map<String, Value> {
+    use crate::types::McpTransport;
+    let mut map = serde_json::Map::new();
+    for srv in servers.iter().filter(|x| x.enabled && (x.providers.is_empty() || x.providers.contains(&Provider::Codex))) {
+        let name = srv.name.trim();
+        if name.is_empty() || name.contains('.') || name.contains('"') {
+            continue;
+        }
+        let entry = match srv.transport {
+            McpTransport::Stdio => {
+                let Some(cmd) = srv.command.as_deref().map(str::trim).filter(|c| !c.is_empty()) else { continue };
+                let env: serde_json::Map<String, Value> = srv.env.iter().filter(|e| !e.key.trim().is_empty()).map(|e| (e.key.trim().to_string(), Value::String(e.value.clone()))).collect();
+                let mut v = json!({ "command": cmd, "args": srv.args });
+                if !env.is_empty() {
+                    v["env"] = Value::Object(env);
+                }
+                v
+            }
+            McpTransport::Http => {
+                let Some(url) = srv.url.as_deref().map(str::trim).filter(|u| !u.is_empty()) else { continue };
+                json!({ "url": url })
+            }
+        };
+        map.insert(format!("mcp_servers.{name}"), entry);
+    }
+    map
+}
+
+/// `item/tool/requestUserInput` questions → UI questions (single-select; `isOther`/no options → free text).
+pub fn codex_questions(params: &Value) -> Vec<AgentQuestion> {
+    params
+        .get("questions")
+        .and_then(|a| a.as_array())
+        .map(|qs| {
+            qs.iter()
+                .filter_map(|q| {
+                    let id = s(q, "id")?.to_string();
+                    let options: Vec<QuestionOption> = q
+                        .get("options")
+                        .and_then(|o| o.as_array())
+                        .map(|o| {
+                            o.iter()
+                                .filter_map(|opt| Some(QuestionOption { label: s(opt, "label")?.to_string(), description: s(opt, "description").map(String::from) }))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let is_other = q.get("isOther").and_then(|b| b.as_bool()).unwrap_or(false);
+                    Some(AgentQuestion {
+                        id,
+                        header: s(q, "header").unwrap_or("").to_string(),
+                        question: s(q, "question").unwrap_or("").to_string(),
+                        allow_free_text: is_other || options.is_empty(),
+                        options,
+                        multi_select: false,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// JSON-RPC `result` for `item/tool/requestUserInput`: `{answers: {<question id>: {answers: [..]}}}`.
+pub fn question_response(answers: &[QuestionAnswer]) -> Value {
+    let mut map = serde_json::Map::new();
+    for a in answers {
+        let list: Vec<Value> = a.answers.iter().map(|x| x.trim()).filter(|x| !x.is_empty()).map(|x| Value::String(x.to_string())).collect();
+        map.insert(a.question_id.clone(), json!({ "answers": list }));
+    }
+    json!({ "answers": Value::Object(map) })
 }
 
 /// Build the JSON-RPC `result` answering a pending approval.
@@ -670,6 +754,49 @@ mod tests {
         map_server_request(&mut st, &json!(6), "item/commandExecution/requestApproval", &json!({ "command": "rm -rf x" })).unwrap();
         let evs = map_notification(&mut st, "turn/completed", &json!({ "turn": { "id": "u", "status": "interrupted" } }));
         assert_eq!(kinds(&evs), vec!["permission_resolved", "turn_end"]);
+    }
+
+    #[test]
+    fn mcp_overrides_use_dotted_keys_and_filter_providers() {
+        use crate::types::{EnvVar, McpServerConfig, McpTransport};
+        let servers = vec![
+            McpServerConfig { id: "1".into(), name: "fs".into(), transport: McpTransport::Stdio, command: Some("npx".into()), args: vec!["-y".into(), "srv".into()], env: vec![EnvVar { key: "K".into(), value: "v".into() }], url: None, enabled: true, providers: vec![] },
+            McpServerConfig { id: "2".into(), name: "web".into(), transport: McpTransport::Http, command: None, args: vec![], env: vec![], url: Some("https://h/mcp".into()), enabled: true, providers: vec![Provider::Codex] },
+            McpServerConfig { id: "3".into(), name: "claude-only".into(), transport: McpTransport::Http, command: None, args: vec![], env: vec![], url: Some("https://c".into()), enabled: true, providers: vec![Provider::Claude] },
+        ];
+        let o = mcp_config_overrides(&servers);
+        assert_eq!(o.len(), 2);
+        assert_eq!(o["mcp_servers.fs"]["command"], "npx");
+        assert_eq!(o["mcp_servers.fs"]["env"]["K"], "v");
+        assert_eq!(o["mcp_servers.web"]["url"], "https://h/mcp");
+        assert!(o.get("mcp_servers.claude-only").is_none());
+    }
+
+    #[test]
+    fn request_user_input_becomes_question() {
+        let mut st = MapState::default();
+        let params = json!({
+            "threadId": "t", "turnId": "u", "itemId": "i", "isBlocking": true, "autoResolutionMs": null,
+            "questions": [
+                {"id": "q1", "header": "Framework", "question": "Which framework?", "isOther": true, "isSecret": false, "options": [{"label": "React", "description": "ui"}, {"label": "Vue", "description": "ui"}]},
+                {"id": "q2", "header": "Name", "question": "Project name?", "isOther": false, "isSecret": false, "options": null}
+            ]
+        });
+        let ev = map_server_request(&mut st, &json!(42), "item/tool/requestUserInput", &params).expect("mapped");
+        let (rid, qs) = match ev { SessionEvent::Question { request_id, questions } => (request_id, questions), o => panic!("{o:?}") };
+        assert_eq!(qs.len(), 2);
+        assert_eq!(qs[0].id, "q1");
+        assert_eq!(qs[0].options[1].label, "Vue");
+        assert!(qs[0].allow_free_text);
+        assert!(!qs[0].multi_select);
+        assert!(qs[1].options.is_empty() && qs[1].allow_free_text);
+        assert!(st.pending.contains_key(&rid));
+        let resp = question_response(&[QuestionAnswer { question_id: "q1".into(), answers: vec!["React".into()] }, QuestionAnswer { question_id: "q2".into(), answers: vec!["demo".into()] }]);
+        assert_eq!(resp["answers"]["q1"]["answers"][0], "React");
+        assert_eq!(resp["answers"]["q2"]["answers"][0], "demo");
+        // closing voids it with an empty answer set
+        let p = st.pending.remove(&rid).unwrap();
+        assert_eq!(approval_response(&p, PermissionDecision::Deny, None)["answers"], json!({}));
     }
 
     #[test]

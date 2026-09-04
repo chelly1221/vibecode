@@ -20,7 +20,7 @@ pub async fn session_start(state: State<'_, AppState>, config: SessionConfig, on
 
 #[tauri::command]
 pub async fn session_send(state: State<'_, AppState>, session_id: String, text: String) -> Result<(), String> {
-    state.ctx.sessions.send(&session_id, text).await.map_err(err)
+    state.ctx.sessions.send(state.ctx.clone(), &session_id, text).await.map_err(err)
 }
 
 #[tauri::command]

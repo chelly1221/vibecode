@@ -1,4 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { check as checkUpdate } from "@tauri-apps/plugin-updater";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TitleBar } from "@/components/TitleBar";
@@ -7,6 +9,7 @@ import { Onboarding } from "@/features/onboarding/Onboarding";
 import { ProjectSidebar } from "@/features/projects/ProjectSidebar";
 import { ProjectWizard } from "@/features/projects/ProjectWizard";
 import { ChatView } from "@/features/chat/ChatView";
+import { FilesPanel } from "@/features/files/FilesPanel";
 import { GitPanel } from "@/features/git/GitPanel";
 import { TerminalPanel } from "@/features/terminal/TerminalPanel";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
@@ -17,6 +20,7 @@ export default function App() {
   const loadProjects = useAppStore((s) => s.loadProjects);
   const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
+  const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const projects = useAppStore((s) => s.projects);
@@ -40,6 +44,21 @@ export default function App() {
 
   const onboarding = settings && !settings.onboarding_done;
 
+  // Silent update check once per launch (never blocks; failures are ignored).
+  const updateChecked = useRef(false);
+  useEffect(() => {
+    if (!settings?.onboarding_done || !settings.auto_update_check || updateChecked.current) return;
+    updateChecked.current = true;
+    const t = window.setTimeout(() => {
+      checkUpdate()
+        .then((u) => {
+          if (u) toast.info(`새 버전 v${u.version} 이 있습니다 — 설정 > 정보에서 설치`, { duration: 10000 });
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [settings?.onboarding_done, settings?.auto_update_check]);
+
   return (
     <TooltipProvider>
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
@@ -49,6 +68,7 @@ export default function App() {
         ) : (
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <ProjectSidebar />
+            {filesPanelOpen && <FilesPanel />}
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1">
                 <main className="flex min-w-0 flex-1 flex-col">

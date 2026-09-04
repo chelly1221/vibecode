@@ -8,6 +8,7 @@ import { useAppStore } from "@/stores/app";
 import { TerminalPanel } from "@/features/terminal/TerminalPanel";
 import { EFFORT_OPTIONS, PERMISSION_OPTIONS, providerLabel } from "@/features/settings/options";
 import { AuthCards } from "./AuthCards";
+import { SshKeySection } from "@/features/settings/SshKeySection";
 import { BackendPicker } from "./BackendPicker";
 import { DefaultsForm } from "./DefaultsForm";
 import { pickBestDistro, recommendEnv, toolFound, type Candidate, type EnvChoice } from "./recommend";
@@ -345,6 +346,9 @@ export function Onboarding() {
                     로그인은 각 CLI가 직접 처리합니다. "로그인"을 누르면 아래 터미널에서 진행되고, 끝나면 "다시 확인"을 누르세요.
                   </p>
                   <AuthCards onLogin={() => setTerminalOpen(true)} />
+                  <div className="rounded-xl border p-4">
+                    <SshKeySection />
+                  </div>
                 </>
               )}
 

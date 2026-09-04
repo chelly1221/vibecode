@@ -87,7 +87,7 @@ async fn claude_session_roundtrip_via_wsl() {
         fork: false,
     };
     let session = ClaudeSession::start(
-        StartArgs { session_id: "e2e-session".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: None, events: tx },
+        StartArgs { session_id: "e2e-session".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: None, events: tx , mcp_servers: vec![]},
         broker.clone(),
     )
     .await
@@ -174,5 +174,74 @@ async fn claude_auth_status_and_commit_message_via_wsl() {
     eprintln!("commit message: {msg}");
     assert!(!msg.trim().is_empty());
     assert!(!msg.contains("```"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// AskUserQuestion round-trip + live subagent forwarding.
+/// VIBECODE_E2E=1 WSLENV=VIBECODE_E2E cargo.exe test -p vibecode-core --test claude_wsl claude_question -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn claude_question_and_subagent_via_wsl() {
+    if !e2e_enabled() {
+        eprintln!("VIBECODE_E2E != 1; skipping");
+        return;
+    }
+    let Some(backend) = wsl_backend_with_claude().await else { return };
+    let dir = std::env::temp_dir().join(format!("vibecode-e2e-q-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("README.md"), "# e2e-readme-first-line\nsecond line\n").unwrap();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let broker = PermissionBroker::without_server();
+    let config = SessionConfig { project_id: "e2e".into(), provider: Provider::Claude, model: Some("sonnet".into()), effort: Some(Effort::Low), permission: PermissionPreset::AutoEdit, append_system_prompt: None, resume_ref: None, fork: false };
+    let session = ClaudeSession::start(
+        StartArgs { session_id: "e2e-q".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: None, events: tx, mcp_servers: vec![] },
+        broker,
+    )
+    .await
+    .expect("start");
+
+    // --- structured question ---
+    session.send("Use the AskUserQuestion tool to ask me whether to continue, with exactly two options: Yes and No. After I answer, reply with one word: the option I picked.".into()).await.unwrap();
+    let seen = wait_for(&mut rx, 120, |e| matches!(e, SessionEvent::Question { .. })).await;
+    let (request_id, qid) = match seen.last().unwrap() {
+        SessionEvent::Question { request_id, questions } => {
+            assert_eq!(questions.len(), 1, "{questions:?}");
+            assert!(questions[0].options.iter().any(|o| o.label.eq_ignore_ascii_case("yes")), "{questions:?}");
+            assert!(questions[0].allow_free_text);
+            (request_id.clone(), questions[0].id.clone())
+        }
+        _ => unreachable!(),
+    };
+    session.answer_question(request_id.clone(), vec![vibecode_core::types::QuestionAnswer { question_id: qid, answers: vec!["Yes".into()] }]).await.unwrap();
+    let seen = wait_for(&mut rx, 120, |e| matches!(e, SessionEvent::TurnEnd { .. })).await;
+    assert!(seen.iter().any(|e| matches!(e, SessionEvent::QuestionResolved { request_id: r } if r == &request_id)));
+    assert!(seen.iter().any(|e| matches!(e, SessionEvent::ToolEnd { is_error: false, .. })), "AskUserQuestion should complete: {seen:#?}");
+    assert!(seen.iter().any(|e| matches!(e, SessionEvent::Text { text } if text.to_lowercase().contains("yes"))), "expected the picked option echoed: {seen:#?}");
+
+    // --- subagent transcript is forwarded (auto-allow any tool prompt the subagent triggers) ---
+    session.send("Use the Agent tool to have a subagent read README.md and report the exact first line. Then repeat that line to me.".into()).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+    let mut seen = vec![];
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let ev = tokio::time::timeout(remaining, rx.recv()).await.unwrap_or_else(|_| panic!("timed out; seen so far: {seen:#?}")).expect("channel closed");
+        eprintln!("  event: {}", summarize(&ev));
+        if let SessionEvent::PermissionRequest { request_id, .. } = &ev {
+            session.reply_permission(PermissionReply { request_id: request_id.clone(), decision: PermissionDecision::Allow, message: None }).await.unwrap();
+        }
+        let done = matches!(ev, SessionEvent::TurnEnd { .. });
+        seen.push(ev);
+        if done {
+            break;
+        }
+    }
+    let subs: Vec<&SessionEvent> = seen.iter().filter_map(|e| if let SessionEvent::Subagent { event, .. } = e { Some(event.as_ref()) } else { None }).collect();
+    assert!(!subs.is_empty(), "no subagent events: {seen:#?}");
+    assert!(subs.iter().any(|e| matches!(e, SessionEvent::ToolStart { .. } | SessionEvent::Text { .. })), "{subs:?}");
+    assert!(seen.iter().any(|e| matches!(e, SessionEvent::ToolStart { name, .. } if name == "Agent" || name == "Task")), "parent Agent tool call missing: {seen:#?}");
+    assert!(seen.iter().any(|e| matches!(e, SessionEvent::Text { text } if text.contains("e2e-readme-first-line"))), "{seen:#?}");
+
+    session.close().await.unwrap();
+    let _ = wait_for(&mut rx, 15, |e| matches!(e, SessionEvent::Exited { .. })).await;
     let _ = std::fs::remove_dir_all(&dir);
 }

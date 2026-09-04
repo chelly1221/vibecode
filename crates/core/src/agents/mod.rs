@@ -15,7 +15,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::backend::ExecBackend;
 use crate::error::Result;
-use crate::types::{PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent};
+use crate::types::{McpServerConfig, PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent};
 
 pub use manager::SessionManager;
 
@@ -32,6 +32,8 @@ pub struct StartArgs {
     /// Binary override from settings (None = "claude" / "codex").
     pub bin: Option<String>,
     pub events: EventSender,
+    /// User-configured MCP servers (from settings); adapters filter by `providers`.
+    pub mcp_servers: Vec<McpServerConfig>,
 }
 
 #[async_trait]

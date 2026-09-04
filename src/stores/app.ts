@@ -17,6 +17,7 @@ interface AppState {
   gitPanelOpen: boolean;
   terminalOpen: boolean;
   newSessionOpen: boolean;
+  filesPanelOpen: boolean;
 
   loadSettings: () => Promise<AppSettings>;
   saveSettings: (s: AppSettings) => Promise<void>;
@@ -29,6 +30,7 @@ interface AppState {
   setGitPanelOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   setNewSessionOpen: (open: boolean) => void;
+  setFilesPanelOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -42,6 +44,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   gitPanelOpen: true,
   terminalOpen: false,
   newSessionOpen: false,
+  filesPanelOpen: false,
 
   loadSettings: async () => {
     const settings = await ipc.settings.get();
@@ -71,4 +74,5 @@ export const useAppStore = create<AppState>((set, get) => ({
   setGitPanelOpen: (open) => set({ gitPanelOpen: open }),
   setTerminalOpen: (open) => set({ terminalOpen: open }),
   setNewSessionOpen: (open) => set({ newSessionOpen: open }),
+  setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
 }));

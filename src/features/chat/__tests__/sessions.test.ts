@@ -209,3 +209,140 @@ describe("long session hint", () => {
     expect(LONG_SESSION_QUESTIONS).toBeGreaterThan(0);
   });
 });
+
+import { applySubagentEvent, runningSubagents, subagentDepth } from "@/stores/sessions";
+
+describe("agent questions", () => {
+  const q = { id: "q1", header: "Auth", question: "Which auth?", options: [{ label: "OAuth", description: null }, { label: "Key", description: null }], multi_select: false, allow_free_text: true };
+
+  it("adds a pending question item and resolves it", () => {
+    const s = run([
+      { type: "text_delta", text: "Let me ask" },
+      { type: "question", request_id: "qr1", questions: [q] },
+    ]);
+    expect(s.items[0]).toMatchObject({ type: "assistant", streaming: false });
+    expect(s.items[1]).toMatchObject({ type: "question", request_id: "qr1", answered: false });
+    expect(s.pendingQuestions).toHaveLength(1);
+    const s2 = applyEvent(s, { type: "question_resolved", request_id: "qr1" });
+    expect(s2.pendingQuestions).toHaveLength(0);
+    expect(s2.items[1]).toMatchObject({ type: "question", answered: true });
+  });
+
+  it("exited clears pending questions", () => {
+    const s = run([{ type: "question", request_id: "qr", questions: [q] }, { type: "exited", code: 0 }]);
+    expect(s.pendingQuestions).toHaveLength(0);
+  });
+});
+
+describe("subagent transcripts", () => {
+  const wrap = (parent: string, event: SessionEvent): SessionEvent => ({ type: "subagent", parent_tool_use_id: parent, event });
+
+  it("accumulates deltas, tools and status under the spawning tool", () => {
+    const s = run([
+      { type: "tool_start", id: "agent1", name: "Agent", input: { description: "Explore repo", prompt: "look around" } },
+      wrap("agent1", { type: "text_delta", text: "Sear" }),
+      wrap("agent1", { type: "text_delta", text: "ching" }),
+      wrap("agent1", { type: "tool_start", id: "st1", name: "Grep", input: { pattern: "foo" } }),
+      wrap("agent1", { type: "tool_end", id: "st1", output: "3 matches", is_error: false }),
+      wrap("agent1", { type: "text", text: "Found it" }),
+    ]);
+    const sub = s.subagents["agent1"];
+    expect(sub).toBeDefined();
+    expect(sub.name).toBe("Explore repo");
+    expect(sub.running).toBe(true);
+    expect(sub.parentSubagentId).toBeNull();
+    expect(sub.items.map((i) => i.type)).toEqual(["text", "tool", "text"]);
+    expect(sub.items[0]).toMatchObject({ type: "text", text: "Searching", streaming: false });
+    expect(sub.items[1]).toMatchObject({ type: "tool", toolId: "st1", name: "Grep", output: "3 matches", done: true });
+    expect(sub.items[2]).toMatchObject({ type: "text", text: "Found it", streaming: false });
+    expect(sub.lastActivity).toBe("Found it");
+    expect(runningSubagents(s.subagents)).toBe(1);
+    // Main transcript is untouched by subagent events.
+    expect(s.items).toHaveLength(1);
+    expect(s.running).toBe(true);
+
+    const done = applyEvent(s, { type: "tool_end", id: "agent1", output: "summary", is_error: false });
+    expect(done.subagents["agent1"].running).toBe(false);
+    expect(done.items[0]).toMatchObject({ type: "tool", done: true, output: "summary" });
+    expect(runningSubagents(done.subagents)).toBe(0);
+  });
+
+  it("nests a subagent spawned from inside another subagent", () => {
+    const s = run([
+      { type: "tool_start", id: "A", name: "Task", input: { description: "outer" } },
+      wrap("A", { type: "tool_start", id: "B", name: "Agent", input: { description: "inner" } }),
+      wrap("B", { type: "text_delta", text: "hi from inner" }),
+    ]);
+    expect(s.subagents["A"].parentSubagentId).toBeNull();
+    expect(s.subagents["B"]).toMatchObject({ name: "inner", parentSubagentId: "A", running: true });
+    expect(subagentDepth(s.subagents, "B")).toBe(1);
+    expect(subagentDepth(s.subagents, "A")).toBe(0);
+    // Double-wrapped form (outer wrapper carries the ancestor) works the same.
+    const s2 = applyEvent(s, wrap("A", wrap("B", { type: "text", text: "done" })));
+    expect(s2.subagents["B"].items[0]).toMatchObject({ type: "text", text: "done", streaming: false });
+  });
+
+  it("turn_end stops all running subagents", () => {
+    const s = run([
+      { type: "tool_start", id: "A", name: "Agent", input: {} },
+      wrap("A", { type: "text_delta", text: "x" }),
+      { type: "turn_end", cost_usd: null, usage: usage(1, 1), duration_ms: 5, stop_reason: null },
+    ]);
+    expect(s.subagents["A"].running).toBe(false);
+    expect(s.subagents["A"].items[0]).toMatchObject({ streaming: false });
+  });
+
+  it("applySubagentEvent is pure", () => {
+    const base = { parentToolId: "p", parentSubagentId: null, name: "n", items: [], running: true, startedAt: 0, lastActivity: "", itemCounter: 1 };
+    const next = applySubagentEvent(base, { type: "thinking", text: "hmm" });
+    expect(base.items).toHaveLength(0);
+    expect(next.items[0]).toMatchObject({ type: "thinking", text: "hmm" });
+    expect(next.lastActivity).toBe("생각 중…");
+  });
+});
+
+describe("checkpoints", () => {
+  it("adds checkpoint markers from events", () => {
+    const s = run([{ type: "checkpoint", checkpoint_id: "c1", label: "턴 3 시작 전" }, { type: "user_message", text: "go" }]);
+    expect(s.items[0]).toMatchObject({ type: "checkpoint", checkpoint_id: "c1", label: "턴 3 시작 전" });
+    expect(s.items[1]).toMatchObject({ type: "user" });
+  });
+});
+
+describe("fromMessages (new payloads)", () => {
+  const msg = (seq: number, kind: MessageRecord["kind"], payload: unknown): MessageRecord => ({
+    id: `m${seq}`,
+    session_id: "s1",
+    seq,
+    kind,
+    payload,
+    created_at: "2026-09-04T00:00:00Z",
+  });
+
+  it("rebuilds subagent transcripts, checkpoints and answered questions", () => {
+    const { items, subagents } = fromMessages([
+      msg(1, "system", { subtype: "checkpoint", checkpoint_id: "c9", label: "턴 1 시작 전" }),
+      msg(2, "user", { text: "do it" }),
+      msg(3, "tool", {
+        id: "agent1",
+        name: "Agent",
+        input: { description: "Explore" },
+        output: "summary",
+        is_error: false,
+        subagent: [
+          { kind: "text", text: "Looking" },
+          { kind: "tool", id: "st1", name: "Grep", input: { pattern: "x" }, output: "1 match", is_error: false },
+          { kind: "thinking", text: "hmm" },
+        ],
+      }),
+      msg(4, "system", { subtype: "question", request_id: "qr", questions: [{ id: "q1", header: "H", question: "Q?", options: [{ label: "A" }], multi_select: false, allow_free_text: false }], answers: [{ question_id: "q1", answers: ["A"] }] }),
+    ]);
+    expect(items[0]).toMatchObject({ type: "checkpoint", checkpoint_id: "c9" });
+    expect(items[2]).toMatchObject({ type: "tool", toolId: "agent1", done: true });
+    expect(subagents["agent1"]).toMatchObject({ name: "Explore", running: false });
+    expect(subagents["agent1"].items.map((i) => i.type)).toEqual(["text", "tool", "thinking"]);
+    expect(subagents["agent1"].items[1]).toMatchObject({ type: "tool", toolId: "st1", output: "1 match", done: true });
+    expect(items[3]).toMatchObject({ type: "question", request_id: "qr", answered: true, answers: [{ question_id: "q1", answers: ["A"] }] });
+    expect((items[3] as { questions: unknown[] }).questions).toHaveLength(1);
+  });
+});

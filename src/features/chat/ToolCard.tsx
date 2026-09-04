@@ -15,12 +15,13 @@ import {
   XCircleIcon,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import type { ChatItem } from "@/stores/sessions";
+import type { ChatItem, SubagentState, SubItem } from "@/stores/sessions";
 import { cn } from "@/lib/utils";
 import { DiffView } from "./DiffView";
 import { PlanCard } from "./PlanCard";
+import { SubagentPanel, SubagentStatus } from "./SubagentPanel";
 
-type ToolItem = Extract<ChatItem, { type: "tool" }>;
+type ToolItem = Extract<ChatItem, { type: "tool" }> | Extract<SubItem, { type: "tool" }>;
 
 type Category = "search" | "edit" | "command" | "subagent" | "mcp" | "todo" | "web" | "other";
 
@@ -167,14 +168,57 @@ function JsonBlock({ value }: { value: unknown }) {
   return <OutputBlock text={text} />;
 }
 
-export function ToolCard({ item }: { item: ToolItem }) {
+export function ToolCard({ item, subagents }: { item: ToolItem; subagents?: Record<string, SubagentState> }) {
   const category = categorize(item.name);
   const summary = summarize(item.name, item.input);
-  const [open, setOpen] = useState(category === "edit" || category === "command" || category === "todo");
+  const sub = category === "subagent" && subagents ? subagents[item.toolId] : undefined;
+  const [open, setOpen] = useState(category === "edit" || category === "command" || category === "todo" || (category === "subagent" && !item.done));
+  const [showSub, setShowSub] = useState(true);
   const input = rec(item.input);
 
   const body = (() => {
     switch (category) {
+      case "subagent": {
+        const prompt = pickString(input, ["prompt", "description"]);
+        return (
+          <div className="space-y-2">
+            {prompt && <div className="text-xs whitespace-pre-wrap text-muted-foreground">{prompt}</div>}
+            {sub ? (
+              <div className="rounded-md border bg-muted/20">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-muted/50"
+                  onClick={() => setShowSub((v) => !v)}
+                >
+                  <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", showSub && "rotate-90")} />
+                  <BotIcon className="size-3.5 text-muted-foreground" />
+                  <span className="font-medium">서브에이전트 작동 보기</span>
+                  <span className="ml-auto">
+                    <SubagentStatus sub={sub} />
+                  </span>
+                </button>
+                {showSub && (
+                  <div className="border-t px-2.5 py-2">
+                    <SubagentPanel sub={sub} subagents={subagents ?? {}} compact />
+                  </div>
+                )}
+              </div>
+            ) : (
+              !item.done && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2Icon className="size-3.5 animate-spin" /> 서브에이전트 작동 대기 중…
+                </div>
+              )
+            )}
+            {item.output !== undefined && (
+              <div>
+                <div className="mb-1 text-[11px] text-muted-foreground">결과</div>
+                <OutputBlock text={item.output} isError={item.is_error} />
+              </div>
+            )}
+          </div>
+        );
+      }
       case "edit": {
         const views = editViews(item.input);
         return (

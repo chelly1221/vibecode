@@ -8,6 +8,8 @@ pub mod parse;
 use std::path::Path;
 use std::sync::Arc;
 
+use base64::Engine;
+
 use crate::backend::{CommandOutput, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
 use crate::types::{GitBranch, GitCommit, GitStatus};
@@ -189,20 +191,43 @@ impl Git {
         Ok(out.success())
     }
 
+    /// `-c http.extraheader=…` when `origin` is an HTTPS GitHub remote and a token is stored,
+    /// so pushes work without SSH keys or a credential helper. The token is never logged.
+    async fn auth_args(&self, repo: &Path) -> Vec<String> {
+        let Ok(Some(url)) = self.remote_url(repo, "origin").await else { return vec![] };
+        if !url.starts_with("https://github.com/") {
+            return vec![];
+        }
+        match crate::github::GitHubClient::from_keyring() {
+            Ok(Some(client)) => {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{}", client.token));
+                vec!["-c".into(), format!("http.extraheader=AUTHORIZATION: basic {b64}")]
+            }
+            _ => vec![],
+        }
+    }
+
+    async fn run_remote(&self, repo: &Path, args: &[&str]) -> Result<String> {
+        let mut all: Vec<String> = self.auth_args(repo).await;
+        all.extend(args.iter().map(|s| s.to_string()));
+        let refs: Vec<&str> = all.iter().map(String::as_str).collect();
+        self.run_combined(repo, &refs).await
+    }
+
     pub async fn push(&self, repo: &Path, set_upstream: bool) -> Result<String> {
         if set_upstream && !self.has_upstream(repo).await? {
             let branch = self.current_branch(repo).await?.ok_or_else(|| CoreError::msg("현재 브랜치를 확인할 수 없습니다 (detached HEAD)"))?;
-            return self.run_combined(repo, &["push", "-u", "origin", &branch]).await;
+            return self.run_remote(repo, &["push", "-u", "origin", &branch]).await;
         }
-        self.run_combined(repo, &["push"]).await
+        self.run_remote(repo, &["push"]).await
     }
 
     pub async fn pull(&self, repo: &Path) -> Result<String> {
-        self.run_combined(repo, &["pull"]).await
+        self.run_remote(repo, &["pull"]).await
     }
 
     pub async fn fetch(&self, repo: &Path) -> Result<String> {
-        self.run_combined(repo, &["fetch", "--all", "--prune"]).await
+        self.run_remote(repo, &["fetch", "--all", "--prune"]).await
     }
 
     pub async fn branches(&self, repo: &Path) -> Result<Vec<GitBranch>> {

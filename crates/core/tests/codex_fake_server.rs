@@ -172,7 +172,7 @@ async fn full_turn_with_approval_roundtrip() {
     assert!(models[0].is_default);
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let args = StartArgs { session_id: "s1".into(), config: config(PermissionPreset::AutoEdit), cwd: PathBuf::from("C:\\proj"), backend: backend.clone(), bin: None, events: tx };
+    let args = StartArgs { session_id: "s1".into(), config: config(PermissionPreset::AutoEdit), cwd: PathBuf::from("C:\\proj"), backend: backend.clone(), bin: None, events: tx , mcp_servers: vec![]};
     let session = host.start_session(args).await.expect("thread/start");
     assert_eq!(session.provider(), Provider::Codex);
     assert_eq!(session.external_ref().as_deref(), Some("thr_1"));
@@ -282,7 +282,7 @@ async fn resume_and_interrupt_and_server_death() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut cfg = config(PermissionPreset::ReadOnly);
     cfg.resume_ref = Some("thr_old".into());
-    let args = StartArgs { session_id: "s2".into(), config: cfg, cwd: PathBuf::from("C:\\proj"), backend: backend.clone(), bin: None, events: tx };
+    let args = StartArgs { session_id: "s2".into(), config: cfg, cwd: PathBuf::from("C:\\proj"), backend: backend.clone(), bin: None, events: tx , mcp_servers: vec![]};
     let session = host.start_session(args).await.expect("thread/resume");
     assert_eq!(session.external_ref().as_deref(), Some("thr_2"));
     assert!(matches!(next(&mut rx).await, SessionEvent::Init { .. }));

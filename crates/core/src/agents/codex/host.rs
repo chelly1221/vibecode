@@ -223,6 +223,11 @@ impl CodexHost {
         if let Some(sp) = &cfg.append_system_prompt {
             params["developerInstructions"] = json!(sp);
         }
+        // Config overrides (same key paths as `codex -c key=value`): reasoning effort + MCP servers.
+        let mut overrides = mapping::mcp_config_overrides(&args.mcp_servers);
+        if let Some(e) = cfg.effort {
+            overrides.insert("model_reasoning_effort".into(), json!(e.to_codex()));
+        }
         let method = match (&cfg.resume_ref, cfg.fork) {
             (Some(r), true) => {
                 params["threadId"] = json!(r);
@@ -237,12 +242,12 @@ impl CodexHost {
             (None, _) => {
                 params["serviceName"] = json!("vibecode");
                 params["ephemeral"] = json!(false);
-                if let Some(e) = cfg.effort {
-                    params["config"] = json!({ "model_reasoning_effort": e.to_codex() });
-                }
                 "thread/start"
             }
         };
+        if !overrides.is_empty() {
+            params["config"] = serde_json::Value::Object(overrides);
+        }
         let v = rpc.request(method, params).await.map_err(auth_aware)?;
         let thread_id = v
             .get("thread")

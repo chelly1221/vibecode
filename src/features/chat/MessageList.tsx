@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PermissionDecision } from "@/lib/bindings/PermissionDecision";
+import type { QuestionAnswer } from "@/lib/ipc";
 import type { SessionState } from "@/stores/sessions";
 import { cn } from "@/lib/utils";
 import { itemSpacing, MessageItem } from "./MessageItem";
@@ -13,14 +14,16 @@ const BOTTOM_THRESHOLD = 48;
 export function MessageList({
   session,
   onPermission,
+  onAnswer,
 }: {
   session: SessionState;
   onPermission: (requestId: string, decision: PermissionDecision, message?: string) => void;
+  onAnswer?: (requestId: string, answers: QuestionAnswer[]) => void | Promise<void>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [unseen, setUnseen] = useState(false);
-  const { items, running, statusMessage } = session;
+  const { items, running, statusMessage, subagents } = session;
   const lastItem = items[items.length - 1];
 
   const scrollToBottom = useCallback(() => {
@@ -45,7 +48,7 @@ export function MessageList({
       setUnseen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, statusMessage]);
+  }, [items, statusMessage, subagents]);
 
   // New session selected: jump to bottom.
   useEffect(() => {
@@ -64,7 +67,7 @@ export function MessageList({
           )}
           {items.map((item, i) => (
             <div key={item.id} className={itemSpacing(item)}>
-              <MessageItem item={item} isLast={i === items.length - 1} running={running} onPermission={onPermission} />
+              <MessageItem item={item} isLast={i === items.length - 1} running={running} onPermission={onPermission} onAnswer={onAnswer} subagents={subagents} />
             </div>
           ))}
           {showWorking && (

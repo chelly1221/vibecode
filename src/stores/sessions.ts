@@ -3,7 +3,18 @@
 // drives the Tauri session commands. Components toast errors; this module throws.
 
 import { create } from "zustand";
-import { ipc, type MessageRecord, type PermissionReply, type SessionConfig, type SessionConfigPatch, type SessionEvent, type SessionRecord } from "@/lib/ipc";
+import {
+  ipc,
+  type AgentQuestion,
+  type MessageRecord,
+  type PermissionReply,
+  type QuestionAnswer,
+  type SessionConfig,
+  type SessionConfigPatch,
+  type SessionEvent,
+  type SessionRecord,
+} from "@/lib/ipc";
+import { notify, windowUnfocused } from "@/lib/notify";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionDecision } from "@/lib/bindings/PermissionDecision";
 import type { PermissionKind } from "@/lib/bindings/PermissionKind";
@@ -47,7 +58,42 @@ export type ChatItem =
       decision?: PermissionDecision;
     }
   | { type: "plan"; id: string; steps: PlanStep[] }
+  | {
+      type: "question";
+      id: string;
+      request_id: string;
+      questions: AgentQuestion[];
+      answered: boolean;
+      answers?: QuestionAnswer[];
+    }
+  | { type: "checkpoint"; id: string; checkpoint_id: string; label: string }
   | { type: "system"; id: string; text: string; variant: "info" | "error" | "turn_end" | "exited"; meta?: TurnMeta };
+
+/** Item inside a subagent transcript (a reduced ChatItem). */
+export type SubItem =
+  | { type: "text"; id: string; text: string; streaming: boolean; role: "assistant" | "user" }
+  | { type: "thinking"; id: string; text: string }
+  | { type: "tool"; id: string; toolId: string; name: string; input: unknown; output?: string; is_error?: boolean; done: boolean }
+  | { type: "status"; id: string; text: string };
+
+/** Live transcript of one subagent, keyed by the tool call (Agent/Task) that spawned it. */
+export interface SubagentState {
+  parentToolId: string;
+  /** Tool id of the subagent that contains the parent tool call, or null at the top level. */
+  parentSubagentId: string | null;
+  name: string;
+  items: SubItem[];
+  running: boolean;
+  startedAt: number;
+  /** Short description of the latest activity, for list views. */
+  lastActivity: string;
+  itemCounter: number;
+}
+
+export interface QuestionRequest {
+  request_id: string;
+  questions: AgentQuestion[];
+}
 
 export interface PermissionRequest {
   request_id: string;
@@ -71,6 +117,9 @@ export interface SessionState {
   permission: PermissionPreset;
   items: ChatItem[];
   pendingPermissions: PermissionRequest[];
+  pendingQuestions: QuestionRequest[];
+  /** Subagent transcripts keyed by the spawning tool id. */
+  subagents: Record<string, SubagentState>;
   usage: Usage;
   cost: number;
   lastError: string | null;
@@ -105,6 +154,8 @@ export function createSessionState(record: SessionRecord): SessionState {
     permission: record.permission,
     items: [],
     pendingPermissions: [],
+    pendingQuestions: [],
+    subagents: {},
     usage: emptyUsage(),
     cost: record.total_cost_usd ?? 0,
     lastError: null,
@@ -124,6 +175,153 @@ function finalizeStreaming(items: ChatItem[]): void {
   if (last && last.type === "assistant" && last.streaming) {
     items[items.length - 1] = { ...last, streaming: false };
   }
+}
+
+function rec(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+/** Name for a subagent from the spawning tool's input (Agent tool: description/prompt). */
+function subagentName(input: unknown, fallback: string): string {
+  const r = rec(input);
+  for (const k of ["description", "name", "subagent_type", "prompt"]) {
+    const v = r[k];
+    if (typeof v === "string" && v.trim()) return v.trim().slice(0, 80);
+  }
+  return fallback;
+}
+
+function findTool(items: ChatItem[], toolId: string): Extract<ChatItem, { type: "tool" }> | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.type === "tool" && it.toolId === toolId) return it;
+  }
+  return undefined;
+}
+
+function findSubTool(items: SubItem[], toolId: string): Extract<SubItem, { type: "tool" }> | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.type === "tool" && it.toolId === toolId) return it;
+  }
+  return undefined;
+}
+
+function finalizeSubStreaming(items: SubItem[]): void {
+  const last = items[items.length - 1];
+  if (last && last.type === "text" && last.streaming) items[items.length - 1] = { ...last, streaming: false };
+}
+
+function activityOf(it: SubItem): string {
+  switch (it.type) {
+    case "text":
+      return it.text.trim().split("\n").pop()?.slice(0, 120) ?? "";
+    case "thinking":
+      return "생각 중…";
+    case "tool":
+      return `${it.name}${it.done ? " 완료" : " 실행 중"}`;
+    case "status":
+      return it.text;
+  }
+}
+
+/** Unwrap nested `subagent` wrappers: returns the innermost parent id, the ancestor wrapper ids and the inner event. */
+function unwrapSubagent(ev: Extract<SessionEvent, { type: "subagent" }>): { parentId: string; wrappers: string[]; inner: SessionEvent } {
+  const wrappers: string[] = [];
+  let cur: SessionEvent = ev;
+  let parentId = ev.parent_tool_use_id;
+  while (cur.type === "subagent") {
+    wrappers.push(cur.parent_tool_use_id);
+    parentId = cur.parent_tool_use_id;
+    cur = cur.event;
+  }
+  wrappers.pop();
+  return { parentId, wrappers, inner: cur };
+}
+
+/** Reduce one inner event into a subagent transcript. Returns the updated subagent (new object). */
+export function applySubagentEvent(sub: SubagentState, inner: SessionEvent): SubagentState {
+  const items = sub.items.slice();
+  let counter = sub.itemCounter;
+  const mk = () => `${sub.parentToolId}:${counter++}`;
+  let running = sub.running;
+  switch (inner.type) {
+    case "user_message": {
+      finalizeSubStreaming(items);
+      items.push({ type: "text", id: mk(), text: inner.text, streaming: false, role: "user" });
+      break;
+    }
+    case "text_delta": {
+      const last = items[items.length - 1];
+      if (last && last.type === "text" && last.streaming) items[items.length - 1] = { ...last, text: last.text + inner.text };
+      else items.push({ type: "text", id: mk(), text: inner.text, streaming: true, role: "assistant" });
+      break;
+    }
+    case "text": {
+      const last = items[items.length - 1];
+      if (last && last.type === "text" && last.streaming) items[items.length - 1] = { ...last, text: inner.text || last.text, streaming: false };
+      else if (inner.text) items.push({ type: "text", id: mk(), text: inner.text, streaming: false, role: "assistant" });
+      break;
+    }
+    case "thinking": {
+      const last = items[items.length - 1];
+      if (last && last.type === "thinking") items[items.length - 1] = { ...last, text: last.text + inner.text };
+      else {
+        finalizeSubStreaming(items);
+        items.push({ type: "thinking", id: mk(), text: inner.text });
+      }
+      break;
+    }
+    case "tool_start": {
+      finalizeSubStreaming(items);
+      items.push({ type: "tool", id: mk(), toolId: inner.id, name: inner.name, input: inner.input, done: false });
+      break;
+    }
+    case "tool_end": {
+      const idx = items.findIndex((it) => it.type === "tool" && it.toolId === inner.id);
+      if (idx >= 0) {
+        const it = items[idx] as Extract<SubItem, { type: "tool" }>;
+        items[idx] = { ...it, output: inner.output, is_error: inner.is_error, done: true };
+      } else {
+        items.push({ type: "tool", id: mk(), toolId: inner.id, name: "tool", input: null, output: inner.output, is_error: inner.is_error, done: true });
+      }
+      break;
+    }
+    case "status": {
+      items.push({ type: "status", id: mk(), text: inner.message });
+      break;
+    }
+    case "error": {
+      items.push({ type: "status", id: mk(), text: `오류: ${inner.message}` });
+      break;
+    }
+    case "turn_end":
+    case "exited": {
+      finalizeSubStreaming(items);
+      running = false;
+      break;
+    }
+    default:
+      break;
+  }
+  const last = items[items.length - 1];
+  return { ...sub, items, itemCounter: counter, running, lastActivity: last ? activityOf(last) : sub.lastActivity };
+}
+
+/** Mark every running subagent finished (and close its streaming text). */
+function stopSubagents(subagents: Record<string, SubagentState>): Record<string, SubagentState> | undefined {
+  if (!Object.values(subagents).some((sub) => sub.running)) return undefined;
+  const stopped: Record<string, SubagentState> = {};
+  for (const [k, sub] of Object.entries(subagents)) {
+    if (!sub.running) {
+      stopped[k] = sub;
+      continue;
+    }
+    const items = sub.items.slice();
+    finalizeSubStreaming(items);
+    stopped[k] = { ...sub, items, running: false };
+  }
+  return stopped;
 }
 
 export function applyEvent(state: SessionState, ev: SessionEvent): SessionState {
@@ -200,6 +398,12 @@ export function applyEvent(state: SessionState, ev: SessionEvent): SessionState 
       } else {
         items.push({ type: "tool", id: mk(), toolId: ev.id, name: "tool", input: null, output: ev.output, is_error: ev.is_error, done: true });
       }
+      const sub = state.subagents[ev.id];
+      if (sub && sub.running) {
+        const subItems = sub.items.slice();
+        finalizeSubStreaming(subItems);
+        patch.subagents = { ...state.subagents, [ev.id]: { ...sub, items: subItems, running: false } };
+      }
       break;
     }
     case "permission_request": {
@@ -220,6 +424,64 @@ export function applyEvent(state: SessionState, ev: SessionEvent): SessionState 
         }
       }
       patch.pendingPermissions = state.pendingPermissions.filter((p) => p.request_id !== ev.request_id);
+      break;
+    }
+    case "question": {
+      finalizeStreaming(items);
+      items.push({ type: "question", id: mk(), request_id: ev.request_id, questions: ev.questions, answered: false });
+      patch.pendingQuestions = [...state.pendingQuestions.filter((q) => q.request_id !== ev.request_id), { request_id: ev.request_id, questions: ev.questions }];
+      break;
+    }
+    case "question_resolved": {
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (it.type === "question" && it.request_id === ev.request_id) {
+          items[i] = { ...it, answered: true };
+          break;
+        }
+      }
+      patch.pendingQuestions = state.pendingQuestions.filter((q) => q.request_id !== ev.request_id);
+      break;
+    }
+    case "checkpoint": {
+      finalizeStreaming(items);
+      items.push({ type: "checkpoint", id: mk(), checkpoint_id: ev.checkpoint_id, label: ev.label });
+      break;
+    }
+    case "subagent": {
+      const { parentId, wrappers, inner } = unwrapSubagent(ev);
+      const subagents = { ...(patch.subagents ?? state.subagents) };
+      let sub = subagents[parentId];
+      if (!sub) {
+        // Locate the spawning tool call: top level or inside another subagent.
+        let parentSubagentId: string | null = wrappers.length ? wrappers[wrappers.length - 1] : null;
+        let input: unknown = null;
+        const top = findTool(items, parentId);
+        if (top) input = top.input;
+        else {
+          for (const other of Object.values(subagents)) {
+            const t = findSubTool(other.items, parentId);
+            if (t) {
+              input = t.input;
+              parentSubagentId = other.parentToolId;
+              break;
+            }
+          }
+        }
+        sub = {
+          parentToolId: parentId,
+          parentSubagentId,
+          name: subagentName(input, "서브에이전트"),
+          items: [],
+          running: true,
+          startedAt: Date.now(),
+          lastActivity: "",
+          itemCounter: 1,
+        };
+      }
+      subagents[parentId] = applySubagentEvent(sub, inner);
+      patch.subagents = subagents;
+      patch.running = true;
       break;
     }
     case "plan": {
@@ -252,6 +514,10 @@ export function applyEvent(state: SessionState, ev: SessionEvent): SessionState 
       };
       items.push({ type: "system", id: mk(), variant: "turn_end", text: "완료", meta });
       patch.running = false;
+      {
+        const stopped = stopSubagents(state.subagents);
+        if (stopped) patch.subagents = stopped;
+      }
       patch.statusMessage = null;
       patch.usage = addUsage(state.usage, ev.usage);
       patch.cost = state.cost + (ev.cost_usd ?? 0);
@@ -281,6 +547,11 @@ export function applyEvent(state: SessionState, ev: SessionEvent): SessionState 
       patch.starting = false;
       patch.statusMessage = null;
       patch.pendingPermissions = [];
+      patch.pendingQuestions = [];
+      {
+        const stopped = stopSubagents(state.subagents);
+        if (stopped) patch.subagents = stopped;
+      }
       break;
     }
   }
@@ -324,8 +595,83 @@ const DECISIONS: PermissionDecision[] = ["allow", "allow_session", "deny"];
  *   system     {subtype: "turn_end", cost_usd, usage, duration_ms, stop_reason}
  *              | {subtype: "error", message} | {subtype: "init", model, external_ref}
  */
-export function fromMessages(records: MessageRecord[]): { items: ChatItem[]; usage: Usage; cost: number; externalRef: string | null } {
+/** Persisted subagent transcript entries: `{kind:"text",text}` / `{kind:"tool",name,input,output,is_error}` / `{kind:"thinking",text}`. */
+function subagentFromPayload(parentToolId: string, parentInput: unknown, raw: unknown): SubagentState | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const items: SubItem[] = [];
+  let n = 1;
+  for (const entry of raw) {
+    const e = asRecord(entry);
+    const id = `${parentToolId}:${n++}`;
+    const kind = str(e.kind);
+    if (kind === "text") items.push({ type: "text", id, text: str(e.text), streaming: false, role: e.role === "user" ? "user" : "assistant" });
+    else if (kind === "thinking") items.push({ type: "thinking", id, text: str(e.text) });
+    else if (kind === "status") items.push({ type: "status", id, text: str(e.text) });
+    else if (kind === "tool") {
+      const hasOutput = e.output !== undefined && e.output !== null;
+      items.push({
+        type: "tool",
+        id,
+        toolId: str(e.id, id),
+        name: str(e.name, "tool"),
+        input: e.input ?? null,
+        output: hasOutput ? str(e.output) : undefined,
+        is_error: typeof e.is_error === "boolean" ? e.is_error : undefined,
+        done: true,
+      });
+    }
+  }
+  const last = items[items.length - 1];
+  return {
+    parentToolId,
+    parentSubagentId: null,
+    name: subagentName(parentInput, "서브에이전트"),
+    items,
+    running: false,
+    startedAt: 0,
+    lastActivity: last ? activityOf(last) : "",
+    itemCounter: n,
+  };
+}
+
+function questionsOf(v: unknown): AgentQuestion[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((q, i) => {
+    const r = asRecord(q);
+    const options = Array.isArray(r.options)
+      ? r.options.map((o) => {
+          const orr = asRecord(o);
+          return { label: str(orr.label), description: typeof orr.description === "string" ? orr.description : null };
+        })
+      : [];
+    return {
+      id: str(r.id, String(i)),
+      header: str(r.header),
+      question: str(r.question),
+      options,
+      multi_select: r.multi_select === true,
+      allow_free_text: r.allow_free_text !== false,
+    };
+  });
+}
+
+function answersOf(v: unknown): QuestionAnswer[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.map((a) => {
+    const r = asRecord(a);
+    return { question_id: str(r.question_id), answers: Array.isArray(r.answers) ? r.answers.map((x) => str(x)) : [] };
+  });
+}
+
+export function fromMessages(records: MessageRecord[]): {
+  items: ChatItem[];
+  usage: Usage;
+  cost: number;
+  externalRef: string | null;
+  subagents: Record<string, SubagentState>;
+} {
   const items: ChatItem[] = [];
+  const subagents: Record<string, SubagentState> = {};
   let usage = emptyUsage();
   let cost = 0;
   let externalRef: string | null = null;
@@ -342,16 +688,19 @@ export function fromMessages(records: MessageRecord[]): { items: ChatItem[]; usa
         break;
       case "tool": {
         const hasOutput = p.output !== undefined && p.output !== null;
+        const toolId = str(p.id, id);
         items.push({
           type: "tool",
           id,
-          toolId: str(p.id, id),
+          toolId,
           name: str(p.name, "tool"),
           input: p.input ?? null,
           output: hasOutput ? str(p.output) : undefined,
           is_error: typeof p.is_error === "boolean" ? p.is_error : undefined,
           done: hasOutput,
         });
+        const sub = subagentFromPayload(toolId, p.input, p.subagent);
+        if (sub) subagents[toolId] = sub;
         break;
       }
       case "permission": {
@@ -381,6 +730,10 @@ export function fromMessages(records: MessageRecord[]): { items: ChatItem[]; usa
           items.push({ type: "system", id, variant: "info", text: `세션 시작 · ${str(p.model, "?")}` });
         } else if (subtype === "exited") {
           items.push({ type: "system", id, variant: "exited", text: "세션 종료" });
+        } else if (subtype === "checkpoint") {
+          items.push({ type: "checkpoint", id, checkpoint_id: str(p.checkpoint_id), label: str(p.label, "체크포인트") });
+        } else if (subtype === "question") {
+          items.push({ type: "question", id, request_id: str(p.request_id, id), questions: questionsOf(p.questions), answered: true, answers: answersOf(p.answers) });
         } else {
           items.push({ type: "system", id, variant: "info", text: str(p.message ?? p.text ?? subtype) });
         }
@@ -388,7 +741,16 @@ export function fromMessages(records: MessageRecord[]): { items: ChatItem[]; usa
       }
     }
   }
-  return { items, usage, cost, externalRef };
+  // Nested transcripts: a subagent whose spawning tool lives inside another subagent.
+  for (const sub of Object.values(subagents)) {
+    for (const other of Object.values(subagents)) {
+      if (other !== sub && findSubTool(other.items, sub.parentToolId)) {
+        sub.parentSubagentId = other.parentToolId;
+        break;
+      }
+    }
+  }
+  return { items, usage, cost, externalRef, subagents };
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +770,8 @@ interface SessionsStore {
   send: (id: string, text: string) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
   permissionReply: (id: string, reply: PermissionReply) => Promise<void>;
+  /** Answer a pending agent question. */
+  answerQuestion: (id: string, requestId: string, answers: QuestionAnswer[]) => Promise<void>;
   updateConfig: (id: string, patch: SessionConfigPatch) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   remove: (id: string) => void;
@@ -445,6 +809,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
         .loadSessions(cur.record.project_id)
         .catch(() => {});
     }
+    maybeNotify(cur, ev);
   },
 
   startSession: async (config, opts) => {
@@ -473,7 +838,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
       let st = existing ?? createSessionState(record);
       if (!existing && source) {
         // The provider handed us a new id for a resumed conversation: carry the transcript over.
-        st = { ...st, items: source.items, usage: source.usage, cost: source.cost, nextId: source.nextId, historyLoaded: true };
+        st = { ...st, items: source.items, subagents: source.subagents, usage: source.usage, cost: source.cost, nextId: source.nextId, historyLoaded: true };
       }
       st = {
         ...st,
@@ -509,7 +874,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     const st = get().sessions[record.id];
     if (!st || st.historyLoaded || st.live) return;
     const msgs = await ipc.sessions.messages(record.id);
-    const { items, usage, cost, externalRef } = fromMessages(msgs);
+    const { items, usage, cost, externalRef, subagents } = fromMessages(msgs);
     set((s) => {
       const cur = s.sessions[record.id];
       if (!cur || cur.live || cur.historyLoaded) return {};
@@ -520,6 +885,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
             ...cur,
             record: { ...cur.record, external_ref: cur.record.external_ref ?? externalRef },
             items,
+            subagents,
             usage,
             cost: cost || cur.cost,
             historyLoaded: true,
@@ -550,6 +916,16 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     get().dispatch(id, { type: "permission_resolved", request_id: reply.request_id, decision: reply.decision });
   },
 
+  answerQuestion: async (id, requestId, answers) => {
+    await ipc.sessions.answerQuestion(id, requestId, answers);
+    set((s) => {
+      const cur = s.sessions[id];
+      if (!cur) return {};
+      const items = cur.items.map((it) => (it.type === "question" && it.request_id === requestId ? { ...it, answered: true, answers } : it));
+      return { sessions: { ...s.sessions, [id]: { ...cur, items, pendingQuestions: cur.pendingQuestions.filter((q) => q.request_id !== requestId) } } };
+    });
+  },
+
   updateConfig: async (id, patch) => {
     const st = get().sessions[id];
     if (!st) throw new Error("세션 정보를 찾을 수 없습니다");
@@ -576,7 +952,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     set((s) => {
       const cur = s.sessions[id];
       if (!cur) return {};
-      return { sessions: { ...s.sessions, [id]: { ...cur, live: false, running: false, starting: false, pendingPermissions: [] } } };
+      return { sessions: { ...s.sessions, [id]: { ...cur, live: false, running: false, starting: false, pendingPermissions: [], pendingQuestions: [] } } };
     });
   },
 
@@ -590,6 +966,41 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     });
   },
 }));
+
+/** Fire a desktop notification for events that need attention while the window is unfocused. */
+function maybeNotify(st: SessionState, ev: SessionEvent): void {
+  if (ev.type !== "turn_end" && ev.type !== "permission_request" && ev.type !== "question") return;
+  if (!windowUnfocused()) return;
+  if (useAppStore.getState().settings?.notifications_enabled === false) return;
+  const title = st.record.title || "Vibecoder";
+  const body =
+    ev.type === "turn_end"
+      ? "작업이 끝났습니다"
+      : ev.type === "permission_request"
+        ? `${ev.kind === "command" ? "명령 실행" : ev.kind === "file_edit" ? "파일 수정" : "도구 사용"} 승인이 필요합니다: ${ev.title}`.slice(0, 200)
+        : "질문에 답해 주세요";
+  void notify(title, body);
+}
+
+/** Subagents still working in a session. */
+export function runningSubagents(subagents: Record<string, SubagentState>): number {
+  let n = 0;
+  for (const sub of Object.values(subagents)) if (sub.running) n++;
+  return n;
+}
+
+/** Depth of a subagent in the nesting tree (0 = spawned from the main conversation). */
+export function subagentDepth(subagents: Record<string, SubagentState>, id: string): number {
+  let depth = 0;
+  let cur = subagents[id];
+  const seen = new Set<string>();
+  while (cur && cur.parentSubagentId && !seen.has(cur.parentSubagentId)) {
+    seen.add(cur.parentSubagentId);
+    depth++;
+    cur = subagents[cur.parentSubagentId];
+  }
+  return depth;
+}
 
 /** Show the "start a new conversation" hint once a session holds this many user questions. */
 export const LONG_SESSION_QUESTIONS = 20;

@@ -1,7 +1,7 @@
 // Top bar of a session: provider, title, model / effort / permission controls, usage and actions.
 
 import { useMemo } from "react";
-import { Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
+import { BotIcon, Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useModels } from "@/hooks/useModels";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
-import { useSessionsStore, type SessionState } from "@/stores/sessions";
+import { runningSubagents, useSessionsStore, type SessionState } from "@/stores/sessions";
+import { CheckpointsPopover } from "./CheckpointsPopover";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_OPTION,
@@ -39,8 +40,18 @@ export function ProviderBadge({ provider, className }: { provider: "claude" | "c
   );
 }
 
-export function SessionHeader({ session }: { session: SessionState }) {
+export function SessionHeader({
+  session,
+  subagentsOpen,
+  onToggleSubagents,
+}: {
+  session: SessionState;
+  subagentsOpen?: boolean;
+  onToggleSubagents?: () => void;
+}) {
   const updateConfig = useSessionsStore((s) => s.updateConfig);
+  const subagentCount = Object.keys(session.subagents).length;
+  const subagentRunning = runningSubagents(session.subagents);
   const interrupt = useSessionsStore((s) => s.interrupt);
   const closeSession = useSessionsStore((s) => s.closeSession);
   const { models, loading } = useModels(session.record.provider);
@@ -139,6 +150,22 @@ export function SessionHeader({ session }: { session: SessionState }) {
             {session.usage.cache_read_tokens.toLocaleString()}
           </TooltipContent>
         </Tooltip>
+
+        {subagentCount > 0 && onToggleSubagents && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant={subagentsOpen ? "secondary" : "ghost"} onClick={onToggleSubagents} aria-pressed={subagentsOpen}>
+                <BotIcon data-icon="inline-start" />
+                {subagentRunning > 0 ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
+                <Badge variant={subagentRunning > 0 ? "default" : "secondary"} className="px-1.5 py-0 text-[10px]">
+                  {subagentRunning > 0 ? `${subagentRunning}/${subagentCount}` : subagentCount}
+                </Badge>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>서브에이전트 작동창 {subagentRunning > 0 ? `(${subagentRunning}개 작동 중)` : ""}</TooltipContent>
+          </Tooltip>
+        )}
+        <CheckpointsPopover projectId={session.record.project_id} sessionId={session.record.id} />
 
         {session.running && (
           <Button size="sm" variant="destructive" onClick={() => run(interrupt(id), "중단")}>

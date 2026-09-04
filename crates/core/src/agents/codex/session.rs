@@ -13,7 +13,7 @@ use super::mapping::{self, MapState};
 use super::rpc::{Incoming, RpcClient};
 use crate::agents::{AgentSession, EventSender};
 use crate::error::{CoreError, Result};
-use crate::types::{Effort, PermissionDecision, PermissionPreset, PermissionReply, Provider, SessionConfigPatch, SessionEvent};
+use crate::types::{Effort, PermissionDecision, PermissionPreset, PermissionReply, Provider, QuestionAnswer, SessionConfigPatch, SessionEvent};
 
 /// Settings applied on every `turn/start` (override "this turn and subsequent turns").
 #[derive(Debug, Clone)]
@@ -161,6 +161,23 @@ impl AgentSession for CodexSession {
         let result = mapping::approval_response(&pending, reply.decision, reply.message.as_deref());
         self.inner.rpc.respond(pending.rpc_id.clone(), result).await?;
         self.inner.emit(SessionEvent::PermissionResolved { request_id: reply.request_id, decision: reply.decision });
+        Ok(())
+    }
+
+    async fn answer_question(&self, request_id: String, answers: Vec<QuestionAnswer>) -> Result<()> {
+        let pending = self.inner.map.lock().ok().and_then(|mut m| m.pending.remove(&request_id));
+        let Some(pending) = pending else {
+            return Err(CoreError::NotFound(format!("question {request_id}")));
+        };
+        if pending.method != "item/tool/requestUserInput" {
+            // Not a question: put it back and refuse.
+            if let Ok(mut m) = self.inner.map.lock() {
+                m.pending.insert(request_id.clone(), pending);
+            }
+            return Err(CoreError::msg("request is not a question"));
+        }
+        self.inner.rpc.respond(pending.rpc_id.clone(), mapping::question_response(&answers)).await?;
+        self.inner.emit(SessionEvent::QuestionResolved { request_id });
         Ok(())
     }
 

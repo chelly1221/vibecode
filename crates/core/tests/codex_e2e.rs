@@ -53,3 +53,36 @@ async fn e2e_app_server_handshake_and_models() {
     host.shutdown().await;
     assert!(!host.is_running().await);
 }
+
+/// `thread/start` must accept our MCP `config` overrides (dotted `mcp_servers.<name>` keys).
+#[tokio::test]
+#[ignore]
+async fn e2e_thread_start_accepts_mcp_config_overrides() {
+    if std::env::var("VIBECODE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("VIBECODE_E2E != 1; skipping");
+        return;
+    }
+    let b = backend();
+    let host = CodexHost::new();
+    host.ensure_started(b.clone(), None).await.expect("ensure_started");
+    let rpc = host.rpc().await.expect("rpc");
+    let servers = vec![vibecode_core::types::McpServerConfig {
+        id: "t".into(),
+        name: "vibetest".into(),
+        transport: vibecode_core::types::McpTransport::Http,
+        command: None,
+        args: vec![],
+        env: vec![],
+        url: Some("http://127.0.0.1:9/mcp".into()),
+        enabled: true,
+        providers: vec![],
+    }];
+    let overrides = vibecode_core::agents::codex::mapping::mcp_config_overrides(&servers);
+    let cwd = b.to_backend_path(&std::env::temp_dir());
+    let params = serde_json::json!({ "cwd": cwd, "approvalPolicy": "never", "sandbox": "read-only", "serviceName": "vibecode", "ephemeral": true, "config": serde_json::Value::Object(overrides) });
+    let v = rpc.request("thread/start", params).await.expect("thread/start with mcp config overrides");
+    let thread_id = v["thread"]["id"].as_str().expect("thread id").to_string();
+    eprintln!("thread/start ok with mcp override: thread {thread_id}");
+    let _ = rpc.request("thread/unsubscribe", serde_json::json!({ "threadId": thread_id })).await;
+    host.shutdown().await;
+}

@@ -1,4 +1,4 @@
-import { Check, Minus, Sparkles, X } from "lucide-react";
+import { Bot, Check, Minus, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { StackInfo, ToolStatus } from "@/lib/ipc";
@@ -9,9 +9,11 @@ interface StackCardProps {
   tools: ToolStatus[] | null;
   projectName: string;
   onSelect: () => void;
+  /** Score from "AI에게 물어보기" (0-100) when available. */
+  aiScore?: number | null;
 }
 
-export function StackCard({ stack, selected, tools, projectName, onSelect }: StackCardProps) {
+export function StackCard({ stack, selected, tools, projectName, onSelect, aiScore = null }: StackCardProps) {
   const cmd = stack.scaffold_cmd?.replace(/\{name\}/g, projectName || "my-app");
   return (
     <button
@@ -30,6 +32,11 @@ export function StackCard({ stack, selected, tools, projectName, onSelect }: Sta
             {stack.recommended && (
               <Badge className="h-4 gap-0.5 px-1 text-[10px]">
                 <Sparkles className="size-2.5" /> 추천
+              </Badge>
+            )}
+            {aiScore !== null && (
+              <Badge variant="secondary" className="h-4 gap-0.5 px-1 text-[10px]" title="AI 추천 점수">
+                <Bot className="size-2.5" /> AI {aiScore}
               </Badge>
             )}
           </div>

@@ -16,6 +16,9 @@ import { BackendPicker } from "@/features/onboarding/BackendPicker";
 import { useManagedEnv } from "@/features/onboarding/useManagedEnv";
 import { DefaultsForm } from "@/features/onboarding/DefaultsForm";
 import { ToolsTable } from "@/features/onboarding/ToolsTable";
+import { McpTab } from "./McpTab";
+import { SshKeySection } from "./SshKeySection";
+import { UpdateSection } from "./UpdateSection";
 
 /** App settings dialog (controlled by `useAppStore.settingsOpen`). */
 export function SettingsDialog() {
@@ -52,7 +55,7 @@ export function SettingsDialog() {
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>설정</DialogTitle>
-          <DialogDescription>실행 환경, 기본값, 계정을 관리합니다.</DialogDescription>
+          <DialogDescription>실행 환경, 기본값, 계정, MCP 서버를 관리합니다.</DialogDescription>
         </DialogHeader>
         {draft && (
           <Tabs defaultValue="general" className="min-h-0 flex-1">
@@ -60,6 +63,7 @@ export function SettingsDialog() {
               <TabsTrigger value="general">일반</TabsTrigger>
               <TabsTrigger value="backend">실행 환경</TabsTrigger>
               <TabsTrigger value="accounts">계정</TabsTrigger>
+              <TabsTrigger value="mcp">MCP</TabsTrigger>
               <TabsTrigger value="about">정보</TabsTrigger>
             </TabsList>
             <div className="min-h-0 flex-1 overflow-y-auto pt-4 pr-1">
@@ -71,6 +75,9 @@ export function SettingsDialog() {
               </TabsContent>
               <TabsContent value="accounts">
                 <AccountsTab onLogin={() => setOpen(false)} />
+              </TabsContent>
+              <TabsContent value="mcp">
+                <McpTab draft={draft} patch={patch} />
               </TabsContent>
               <TabsContent value="about">
                 <AboutTab />
@@ -268,6 +275,8 @@ function AccountsTab({ onLogin }: { onLogin: () => void }) {
           </div>
         )}
       </section>
+      <Separator />
+      <SshKeySection />
     </div>
   );
 }
@@ -294,6 +303,7 @@ function AboutTab() {
       <p className="text-muted-foreground">
         Claude Code, OpenAI Codex, git을 한 화면에서 다루는 개인용 바이브코딩 도구입니다.
       </p>
+      <UpdateSection />
       <ul className="space-y-1">
         {links.map(([label, url]) => (
           <li key={url}>

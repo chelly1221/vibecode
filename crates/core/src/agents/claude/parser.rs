@@ -55,11 +55,29 @@ impl Parser {
 
     pub fn parse_value(&mut self, v: &Value) -> Vec<Parsed> {
         let ty = v.get("type").and_then(Value::as_str).unwrap_or("");
+        // Subagent traffic (--forward-subagent-text): same shapes, tagged with the spawning
+        // tool call's id. Parse it like the main transcript and wrap every event.
+        if let Some(parent) = v.get("parent_tool_use_id").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+            let parent = parent.to_string();
+            let inner = match ty {
+                "stream_event" => self.parse_stream_event(v),
+                "assistant" => self.parse_assistant(v),
+                "user" => self.parse_user_inner(v, true),
+                _ => vec![Parsed::Ignore],
+            };
+            return inner
+                .into_iter()
+                .map(|p| match p {
+                    Parsed::Event(ev) => Parsed::Event(SessionEvent::Subagent { parent_tool_use_id: parent.clone(), event: Box::new(ev) }),
+                    other => other,
+                })
+                .collect();
+        }
         match ty {
             "system" => self.parse_system(v),
             "stream_event" => self.parse_stream_event(v),
             "assistant" => self.parse_assistant(v),
-            "user" => self.parse_user(v),
+            "user" => self.parse_user_inner(v, false),
             "result" => self.parse_result(v),
             "control_request" => {
                 let request_id = v.get("request_id").and_then(Value::as_str).unwrap_or("").to_string();
@@ -115,10 +133,6 @@ impl Parser {
     }
 
     fn parse_stream_event(&mut self, v: &Value) -> Vec<Parsed> {
-        // Subagent traffic carries parent_tool_use_id; keep the main transcript clean.
-        if v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false) {
-            return vec![Parsed::Ignore];
-        }
         let Some(ev) = v.get("event") else { return vec![Parsed::Ignore] };
         let ety = ev.get("type").and_then(Value::as_str).unwrap_or("");
         match ety {
@@ -161,9 +175,6 @@ impl Parser {
     }
 
     fn parse_assistant(&mut self, v: &Value) -> Vec<Parsed> {
-        if v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false) {
-            return vec![Parsed::Ignore];
-        }
         let mut out = vec![];
         let blocks = v.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
         for block in blocks {
@@ -201,20 +212,33 @@ impl Parser {
         if out.is_empty() { vec![Parsed::Ignore] } else { out }
     }
 
-    fn parse_user(&mut self, v: &Value) -> Vec<Parsed> {
-        if v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false) {
-            return vec![Parsed::Ignore];
-        }
+    /// `subagent`: the message belongs to a subagent transcript, where the initial user text is
+    /// the prompt the parent gave it (worth showing); at top level user text is our own replay.
+    fn parse_user_inner(&mut self, v: &Value, subagent: bool) -> Vec<Parsed> {
         let mut out = vec![];
         // Prefer tool_use_result (rich) over the plain tool_result content when present.
-        let blocks = v.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
+        let content = v.pointer("/message/content").cloned().unwrap_or(Value::Null);
+        let blocks = match &content {
+            Value::Array(a) => a.clone(),
+            Value::String(text) => vec![serde_json::json!({ "type": "text", "text": text })],
+            _ => vec![],
+        };
         for block in blocks {
-            if block.get("type").and_then(Value::as_str) == Some("tool_result") {
-                let id = str_field(&block, "tool_use_id");
-                let is_error = block.get("is_error").and_then(Value::as_bool).unwrap_or(false);
-                let output = tool_result_text(block.get("content"));
-                self.started_tools.remove(&id);
-                out.push(Parsed::Event(SessionEvent::ToolEnd { id, output, is_error }));
+            match block.get("type").and_then(Value::as_str) {
+                Some("tool_result") => {
+                    let id = str_field(&block, "tool_use_id");
+                    let is_error = block.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                    let output = tool_result_text(block.get("content"));
+                    self.started_tools.remove(&id);
+                    out.push(Parsed::Event(SessionEvent::ToolEnd { id, output, is_error }));
+                }
+                Some("text") if subagent => {
+                    let text = block.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+                    if !text.trim().is_empty() {
+                        out.push(Parsed::Event(SessionEvent::UserMessage { text }));
+                    }
+                }
+                _ => {}
             }
         }
         // Replayed user text (from --replay-user-messages) is ignored: we emit UserMessage on send.
@@ -371,6 +395,30 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, SessionEvent::ToolEnd { output, .. } if output == "hi")));
         assert!(events.iter().any(|e| matches!(e, SessionEvent::Text { text } if text.contains("hi"))));
         assert!(!events.iter().any(|e| matches!(e, SessionEvent::TextDelta { .. })));
+    }
+
+    #[test]
+    fn subagent_fixture_wraps_events_by_parent() {
+        let (_, events) = run(include_str!("../../../tests/fixtures/claude_subagent.jsonl"));
+        // The Agent tool call itself is top-level.
+        let (parent_id, _) = events
+            .iter()
+            .find_map(|e| if let SessionEvent::ToolStart { id, name, .. } = e { if name == "Agent" { Some((id.clone(), name.clone())) } else { None } } else { None })
+            .expect("top-level Agent tool start");
+        let subs: Vec<&SessionEvent> = events
+            .iter()
+            .filter_map(|e| if let SessionEvent::Subagent { parent_tool_use_id, event } = e { assert_eq!(parent_tool_use_id, &parent_id); Some(event.as_ref()) } else { None })
+            .collect();
+        assert!(subs.len() >= 4, "subagent events: {}", subs.len());
+        assert!(matches!(subs[0], SessionEvent::UserMessage { text } if text.contains("README.md")));
+        assert!(subs.iter().any(|e| matches!(e, SessionEvent::ToolStart { name, .. } if name == "Read")));
+        assert!(subs.iter().any(|e| matches!(e, SessionEvent::ToolEnd { output, .. } if output.contains("Vibecoder"))));
+        assert!(subs.iter().any(|e| matches!(e, SessionEvent::Text { text } if text.contains("Vibecoder"))));
+        // Nothing from the subagent leaked into the top-level transcript.
+        assert!(!events.iter().any(|e| matches!(e, SessionEvent::ToolStart { name, .. } if name == "Read")));
+        // The parent tool result closes at top level and the turn ends normally.
+        assert!(events.iter().any(|e| matches!(e, SessionEvent::ToolEnd { id, .. } if id == &parent_id)));
+        assert!(matches!(events.last().unwrap(), SessionEvent::TurnEnd { .. }));
     }
 
     #[test]

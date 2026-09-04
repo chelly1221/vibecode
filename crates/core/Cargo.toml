@@ -10,6 +10,7 @@ description = "Tauri-independent core: agent adapters, backends, git, projects, 
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 axum = "0.8.9"
+base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 dirs = "6.0.0"
 futures = "0.3.34"

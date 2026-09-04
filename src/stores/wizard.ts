@@ -10,6 +10,7 @@ import {
   type Provider,
   type ScaffoldEvent,
   type StackInfo,
+  type StackRecommendation,
   type TargetOs,
   type ToolStatus,
 } from "@/lib/ipc";
@@ -56,6 +57,9 @@ interface WizardState {
   stacksLoading: boolean;
   tools: ToolStatus[] | null;
   scaffold: ScaffoldState;
+  /** "AI에게 물어보기" result for the current (targetOs, projectType, description). */
+  aiRecs: StackRecommendation[] | null;
+  aiLoading: boolean;
 
   reset: (settings: AppSettings | null) => void;
   setField: <K extends keyof WizardForm>(key: K, value: WizardForm[K]) => void;
@@ -65,6 +69,7 @@ interface WizardState {
   stepError: () => string | null;
   loadStacks: () => Promise<void>;
   loadTools: () => Promise<void>;
+  askAi: (provider: Provider) => Promise<void>;
   buildRequest: () => CreateProjectRequest;
   runCreate: () => Promise<ProjectRecord | null>;
 }
@@ -101,8 +106,10 @@ export const useWizardStore = create<WizardState>((set, get) => ({
   stacksLoading: false,
   tools: null,
   scaffold: initialScaffold,
+  aiRecs: null,
+  aiLoading: false,
 
-  reset: (settings) => set({ step: 0, form: initialForm(settings), stacks: [], scaffold: initialScaffold }),
+  reset: (settings) => set({ step: 0, form: initialForm(settings), stacks: [], scaffold: initialScaffold, aiRecs: null, aiLoading: false }),
 
   setField: (key, value) => set((s) => ({ form: { ...s.form, [key]: value } })),
 
@@ -139,10 +146,27 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     }
   },
 
+  askAi: async (provider) => {
+    const { form } = get();
+    if (!form.targetOs || !form.projectType) return;
+    set({ aiLoading: true });
+    try {
+      const recs = await ipc.projects.stacksAiRecommend({
+        description: form.description.trim(),
+        target_os: form.targetOs,
+        project_type: form.projectType,
+        provider,
+      });
+      set({ aiRecs: [...recs].sort((a, b) => b.score - a.score) });
+    } finally {
+      set({ aiLoading: false });
+    }
+  },
+
   loadStacks: async () => {
     const { form } = get();
     if (!form.targetOs || !form.projectType) return;
-    set({ stacksLoading: true });
+    set({ stacksLoading: true, aiRecs: null });
     try {
       const stacks = await ipc.projects.stacksRecommend(form.targetOs, form.projectType);
       set({ stacks });

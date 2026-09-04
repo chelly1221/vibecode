@@ -61,7 +61,30 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, seq);
+CREATE TABLE IF NOT EXISTS checkpoints (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    session_id TEXT,
+    seq INTEGER NOT NULL,
+    git_ref TEXT NOT NULL,
+    tree TEXT NOT NULL,
+    label TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS checkpoints_project ON checkpoints(project_id, seq DESC);
 "#;
+
+fn row_checkpoint(r: &Row) -> rusqlite::Result<CheckpointRecord> {
+    Ok(CheckpointRecord {
+        id: r.get("id")?,
+        project_id: r.get("project_id")?,
+        session_id: r.get("session_id")?,
+        seq: r.get("seq")?,
+        git_ref: r.get("git_ref")?,
+        label: r.get("label")?,
+        created_at: parse_ts(r.get("created_at")?),
+    })
+}
 
 fn enum_str<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_value(v).ok().and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default()
@@ -148,7 +171,19 @@ impl Db {
     }
 
     fn migrate(&self) -> Result<()> {
-        self.with_conn(|c| Ok(c.execute_batch(SCHEMA)?))
+        self.with_conn(|c| {
+            c.execute_batch(SCHEMA)?;
+            // sessions.archived was added after the first release.
+            let has_archived = {
+                let mut st = c.prepare("PRAGMA table_info(sessions)")?;
+                let cols = st.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                cols.iter().any(|n| n == "archived")
+            };
+            if !has_archived {
+                c.execute_batch("ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;")?;
+            }
+            Ok(())
+        })
     }
 
     // ---- settings ----
@@ -257,9 +292,11 @@ impl Db {
     pub fn upsert_session(&self, s: &SessionRecord) -> Result<()> {
         self.with_conn(|c| {
             c.execute(
-                "INSERT INTO sessions(id,project_id,provider,external_ref,title,model,effort,permission,total_cost_usd,created_at,last_used_at)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
-                 ON CONFLICT(id) DO UPDATE SET external_ref=excluded.external_ref, title=excluded.title, model=excluded.model, effort=excluded.effort,
+                "INSERT INTO sessions(id,project_id,provider,external_ref,title,model,effort,permission,total_cost_usd,created_at,last_used_at,archived)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                 ON CONFLICT(id) DO UPDATE SET external_ref=excluded.external_ref,
+                   title=CASE WHEN sessions.title='새 세션' THEN excluded.title ELSE sessions.title END,
+                   model=excluded.model, effort=excluded.effort,
                    permission=excluded.permission, total_cost_usd=excluded.total_cost_usd, last_used_at=excluded.last_used_at",
                 params![
                     s.id,
@@ -273,6 +310,7 @@ impl Db {
                     s.total_cost_usd,
                     s.created_at.to_rfc3339(),
                     s.last_used_at.to_rfc3339(),
+                    s.archived as i64,
                 ],
             )?;
             Ok(())
@@ -286,26 +324,97 @@ impl Db {
         })
     }
 
-    // ---- session management (implemented by the checkpoints/fs fork) ----
-    pub fn rename_session(&self, _id: &str, _title: &str) -> Result<()> {
-        Err(CoreError::NotImplemented("db::rename_session"))
+    // ---- session management ----
+    pub fn rename_session(&self, id: &str, title: &str) -> Result<()> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(CoreError::msg("제목을 입력하세요"));
+        }
+        self.with_conn(|c| {
+            let n = c.execute("UPDATE sessions SET title=?2 WHERE id=?1", params![id, title])?;
+            if n == 0 {
+                return Err(CoreError::NotFound(format!("session {id}")));
+            }
+            Ok(())
+        })
     }
-    pub fn set_session_archived(&self, _id: &str, _archived: bool) -> Result<()> {
-        Err(CoreError::NotImplemented("db::set_session_archived"))
+
+    pub fn set_session_archived(&self, id: &str, archived: bool) -> Result<()> {
+        self.with_conn(|c| {
+            let n = c.execute("UPDATE sessions SET archived=?2 WHERE id=?1", params![id, archived as i64])?;
+            if n == 0 {
+                return Err(CoreError::NotFound(format!("session {id}")));
+            }
+            Ok(())
+        })
     }
 
     // ---- checkpoints ----
-    pub fn insert_checkpoint(&self, _c: &CheckpointRecord) -> Result<()> {
-        Err(CoreError::NotImplemented("db::insert_checkpoint"))
+    pub fn insert_checkpoint(&self, c: &CheckpointRecord, tree: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO checkpoints(id,project_id,session_id,seq,git_ref,tree,label,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![c.id, c.project_id, c.session_id, c.seq, c.git_ref, tree, c.label, c.created_at.to_rfc3339()],
+            )?;
+            Ok(())
+        })
     }
-    pub fn list_checkpoints(&self, _project_id: &str, _session_id: Option<&str>) -> Result<Vec<CheckpointRecord>> {
-        Err(CoreError::NotImplemented("db::list_checkpoints"))
+
+    /// Newest first. `session_id` filters to one session when given.
+    pub fn list_checkpoints(&self, project_id: &str, session_id: Option<&str>) -> Result<Vec<CheckpointRecord>> {
+        self.with_conn(|c| {
+            let rows = match session_id {
+                Some(sid) => {
+                    let mut st = c.prepare("SELECT * FROM checkpoints WHERE project_id=?1 AND session_id=?2 ORDER BY seq DESC")?;
+                    let it = st.query_map(params![project_id, sid], row_checkpoint)?;
+                    it.collect::<rusqlite::Result<Vec<_>>>()?
+                }
+                None => {
+                    let mut st = c.prepare("SELECT * FROM checkpoints WHERE project_id=?1 ORDER BY seq DESC")?;
+                    let it = st.query_map(params![project_id], row_checkpoint)?;
+                    it.collect::<rusqlite::Result<Vec<_>>>()?
+                }
+            };
+            Ok(rows)
+        })
     }
-    pub fn get_checkpoint(&self, _id: &str) -> Result<CheckpointRecord> {
-        Err(CoreError::NotImplemented("db::get_checkpoint"))
+
+    pub fn get_checkpoint(&self, id: &str) -> Result<CheckpointRecord> {
+        self.with_conn(|c| {
+            c.query_row("SELECT * FROM checkpoints WHERE id=?1", params![id], row_checkpoint)
+                .optional()?
+                .ok_or_else(|| CoreError::NotFound(format!("checkpoint {id}")))
+        })
     }
-    pub fn next_checkpoint_seq(&self, _project_id: &str) -> Result<i64> {
-        Err(CoreError::NotImplemented("db::next_checkpoint_seq"))
+
+    /// Tree hash stored with a checkpoint (used to skip no-op snapshots and for diffs).
+    pub fn checkpoint_tree(&self, id: &str) -> Result<Option<String>> {
+        self.with_conn(|c| Ok(c.query_row("SELECT tree FROM checkpoints WHERE id=?1", params![id], |r| r.get(0)).optional()?))
+    }
+
+    /// Tree hash of the newest checkpoint of a project.
+    pub fn latest_checkpoint_tree(&self, project_id: &str) -> Result<Option<(String, String)>> {
+        self.with_conn(|c| {
+            Ok(c.query_row(
+                "SELECT id, tree FROM checkpoints WHERE project_id=?1 ORDER BY seq DESC LIMIT 1",
+                params![project_id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()?)
+        })
+    }
+
+    pub fn next_checkpoint_seq(&self, project_id: &str) -> Result<i64> {
+        self.with_conn(|c| {
+            Ok(c.query_row("SELECT COALESCE(MAX(seq), 0) + 1 FROM checkpoints WHERE project_id=?1", params![project_id], |r| r.get(0))?)
+        })
+    }
+
+    pub fn delete_checkpoint(&self, id: &str) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute("DELETE FROM checkpoints WHERE id=?1", params![id])?;
+            Ok(())
+        })
     }
 
     // ---- messages ----
@@ -402,8 +511,56 @@ mod tests {
         assert_eq!(m2.seq, 2);
         assert_eq!(db.list_messages("s1").unwrap().len(), 2);
 
+        // rename / archive; the manager's upsert must not clobber a user rename
+        db.rename_session("s1", "내 세션").unwrap();
+        db.set_session_archived("s1", true).unwrap();
+        let mut again = sess.clone();
+        again.title = "t2".into();
+        db.upsert_session(&again).unwrap();
+        let got = db.get_session("s1").unwrap();
+        assert_eq!(got.title, "내 세션");
+        assert!(got.archived);
+        assert!(db.rename_session("missing", "x").is_err());
+
+        // checkpoints
+        assert_eq!(db.next_checkpoint_seq("a").unwrap(), 1);
+        let cp = CheckpointRecord {
+            id: "c1".into(),
+            project_id: "a".into(),
+            session_id: Some("s1".into()),
+            seq: 1,
+            git_ref: "abc".into(),
+            label: "first".into(),
+            created_at: Utc::now(),
+        };
+        db.insert_checkpoint(&cp, "tree1").unwrap();
+        assert_eq!(db.next_checkpoint_seq("a").unwrap(), 2);
+        assert_eq!(db.latest_checkpoint_tree("a").unwrap(), Some(("c1".into(), "tree1".into())));
+        assert_eq!(db.checkpoint_tree("c1").unwrap().as_deref(), Some("tree1"));
+        assert_eq!(db.list_checkpoints("a", Some("s1")).unwrap().len(), 1);
+        assert_eq!(db.list_checkpoints("a", Some("other")).unwrap().len(), 0);
+        assert_eq!(db.get_checkpoint("c1").unwrap().label, "first");
+        db.delete_checkpoint("c1").unwrap();
+        assert!(db.get_checkpoint("c1").is_err());
+
         db.delete_project("a").unwrap();
         assert!(db.list_sessions("a").unwrap().is_empty());
         assert!(db.list_messages("s1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn migrates_archived_column_on_old_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Old sessions table without `archived`.
+        conn.execute_batch(
+            "CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, target_os TEXT, project_type TEXT, stack_id TEXT, github_url TEXT, default_provider TEXT, default_model TEXT, default_effort TEXT, default_permission TEXT, created_at TEXT NOT NULL, last_opened_at TEXT NOT NULL);
+             CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, provider TEXT NOT NULL, external_ref TEXT, title TEXT NOT NULL, model TEXT, effort TEXT, permission TEXT NOT NULL, total_cost_usd REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_used_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        let db = Db { conn: Mutex::new(conn) };
+        db.migrate().unwrap();
+        db.migrate().unwrap(); // idempotent
+        db.upsert_project(&project("p")).unwrap();
+        assert!(db.list_sessions("p").unwrap().is_empty());
     }
 }

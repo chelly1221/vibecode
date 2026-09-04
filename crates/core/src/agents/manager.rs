@@ -3,7 +3,9 @@
 //! Persisted `MessageRecord.payload` shapes (contract with the chat UI):
 //! - user:       `{ "text" }`
 //! - assistant:  `{ "text" }` (one per `SessionEvent::Text`)
-//! - tool:       `{ "id", "name", "input", "output", "is_error" }` (written on ToolEnd)
+//! - tool:       `{ "id", "name", "input", "output", "is_error", "subagent"?: [...] }` (written on ToolEnd;
+//!               `subagent` holds the spawned subagent's transcript as `{kind:"user"|"text", text}` /
+//!               `{kind:"tool", id, name, input, output, is_error, subagent?}` items, capped)
 //! - permission: `{ "request_id", "kind", "title", "detail", "decision" }` (on PermissionResolved)
 //! - system:     `{ "subtype": "turn_end", "cost_usd", "usage", "duration_ms", "stop_reason" }`,
 //!               `{ "subtype": "error", "message" }`, `{ "subtype": "init", "model", "external_ref" }`
@@ -27,6 +29,9 @@ pub const DEFAULT_TITLE: &str = "새 세션";
 #[derive(Default)]
 pub struct SessionManager {
     live: RwLock<HashMap<String, Arc<dyn AgentSession>>>,
+    /// Adapter-side event senders, so manager-originated events (checkpoints) flow through
+    /// the same persist/forward pipeline as adapter events.
+    senders: RwLock<HashMap<String, super::EventSender>>,
 }
 
 impl SessionManager {
@@ -79,6 +84,7 @@ impl SessionManager {
 
         let (adapter_tx, adapter_rx) = mpsc::unbounded_channel::<SessionEvent>();
         let (ui_tx, ui_rx) = mpsc::unbounded_channel::<SessionEvent>();
+        let mcp_servers = ctx.settings().await.mcp_servers.clone();
         let args = StartArgs {
             session_id: record.id.clone(),
             config: config.clone(),
@@ -86,6 +92,7 @@ impl SessionManager {
             backend: backend.clone(),
             bin: bin.clone(),
             events: adapter_tx,
+            mcp_servers,
         };
         let session: Arc<dyn AgentSession> = match config.provider {
             Provider::Claude => {
@@ -110,8 +117,27 @@ impl SessionManager {
         self.live.read().await.get(session_id).cloned().ok_or_else(|| CoreError::NotFound(format!("session {session_id} is not running")))
     }
 
-    pub async fn send(&self, session_id: &str, text: String) -> Result<()> {
-        self.get(session_id).await?.send(text).await
+    /// Submit a user message. When checkpoints are enabled, the project's working tree is
+    /// snapshotted first (`SessionEvent::Checkpoint` + a persisted `checkpoint` system message);
+    /// snapshot failures are logged and never block the turn.
+    pub async fn send(&self, ctx: Arc<AppContext>, session_id: &str, text: String) -> Result<()> {
+        let session = self.get(session_id).await?;
+        if ctx.settings().await.checkpoints_enabled {
+            if let Ok(rec) = ctx.db.get_session(session_id) {
+                let label = crate::checkpoint::label_for(&text);
+                match crate::checkpoint::create(ctx.clone(), &rec.project_id, Some(session_id), &label).await {
+                    Ok(Some(cp)) => {
+                        if let Some(tx) = self.senders.read().await.get(session_id) {
+                            let _ = tx.send(SessionEvent::Checkpoint { checkpoint_id: cp.id.clone(), label: cp.label.clone() });
+                        }
+                        log(&ctx.db, session_id, MessageKind::System, json!({ "subtype": "checkpoint", "checkpoint_id": cp.id, "label": cp.label }));
+                    }
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("checkpoint before turn failed for {session_id}: {e}"),
+                }
+            }
+        }
+        session.send(text).await
     }
 
     pub async fn interrupt(&self, session_id: &str) -> Result<()> {
@@ -174,11 +200,32 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
     let sid = record.id.clone();
     let mut tools: HashMap<String, PendingTool> = HashMap::new();
     let mut perms: HashMap<String, PendingPermission> = HashMap::new();
+    // Subagent transcripts keyed by the spawning tool call id (nested subagents key by their own parent).
+    let mut subagents: HashMap<String, Vec<Value>> = HashMap::new();
+    let mut sub_tools: HashMap<String, PendingTool> = HashMap::new();
     let mut init_logged = false;
     let db = &ctx.db;
     while let Some(ev) = rx.recv().await {
         let mut dirty = false;
         match &ev {
+            SessionEvent::Subagent { parent_tool_use_id, event } => {
+                match event.as_ref() {
+                    SessionEvent::Text { text } => push_sub(&mut subagents, parent_tool_use_id, json!({ "kind": "text", "text": text })),
+                    SessionEvent::UserMessage { text } => push_sub(&mut subagents, parent_tool_use_id, json!({ "kind": "user", "text": text })),
+                    SessionEvent::ToolStart { id, name, input } => {
+                        sub_tools.insert(id.clone(), PendingTool { name: name.clone(), input: input.clone() });
+                    }
+                    SessionEvent::ToolEnd { id, output, is_error } => {
+                        let PendingTool { name, input } = sub_tools.remove(id).unwrap_or(PendingTool { name: "unknown".into(), input: Value::Null });
+                        let mut item = json!({ "kind": "tool", "id": id, "name": name, "input": input, "output": output, "is_error": is_error });
+                        if let Some(nested) = subagents.remove(id) {
+                            item["subagent"] = Value::Array(nested);
+                        }
+                        push_sub(&mut subagents, parent_tool_use_id, item);
+                    }
+                    _ => {}
+                }
+            }
             SessionEvent::Init { model, external_ref, .. } => {
                 record.external_ref = Some(external_ref.clone());
                 record.model = Some(model.clone());
@@ -201,7 +248,11 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
             }
             SessionEvent::ToolEnd { id, output, is_error } => {
                 let PendingTool { name, input } = tools.remove(id).unwrap_or(PendingTool { name: "unknown".into(), input: Value::Null });
-                log(db, &sid, MessageKind::Tool, json!({ "id": id, "name": name, "input": input, "output": output, "is_error": is_error }));
+                let mut payload = json!({ "id": id, "name": name, "input": input, "output": output, "is_error": is_error });
+                if let Some(sub) = subagents.remove(id) {
+                    payload["subagent"] = Value::Array(sub);
+                }
+                log(db, &sid, MessageKind::Tool, payload);
             }
             SessionEvent::PermissionRequest { request_id, kind, title, detail } => {
                 perms.insert(request_id.clone(), PendingPermission { kind: serde_json::to_value(kind).unwrap_or(Value::Null), title: title.clone(), detail: detail.clone() });
@@ -242,6 +293,18 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
         }
     }
     ctx.sessions.remove_live(&sid).await;
+}
+
+/// Items kept per subagent transcript; beyond this a single marker item is appended once.
+const SUBAGENT_ITEM_CAP: usize = 300;
+
+fn push_sub(map: &mut HashMap<String, Vec<Value>>, parent: &str, item: Value) {
+    let list = map.entry(parent.to_string()).or_default();
+    if list.len() < SUBAGENT_ITEM_CAP {
+        list.push(item);
+    } else if list.len() == SUBAGENT_ITEM_CAP {
+        list.push(json!({ "kind": "text", "text": "… (subagent transcript truncated)" }));
+    }
 }
 
 fn log(db: &crate::db::Db, session_id: &str, kind: MessageKind, payload: Value) {

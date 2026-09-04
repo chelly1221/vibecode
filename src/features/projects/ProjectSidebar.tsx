@@ -10,6 +10,7 @@ import {
   Settings,
   SquareTerminal,
   Trash2,
+  FolderTree,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -119,6 +120,8 @@ export function ProjectSidebar() {
   const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
   const setGitPanelOpen = useAppStore((s) => s.setGitPanelOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
+  const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
+  const setFilesPanelOpen = useAppStore((s) => s.setFilesPanelOpen);
   const setTerminalOpen = useAppStore((s) => s.setTerminalOpen);
   const [pendingRemove, setPendingRemove] = useState<ProjectRecord | null>(null);
 
@@ -197,6 +200,9 @@ export function ProjectSidebar() {
           </IconButton>
           <IconButton label="터미널" pressed={terminalOpen} onClick={() => setTerminalOpen(!terminalOpen)}>
             <SquareTerminal />
+          </IconButton>
+          <IconButton label="파일" pressed={filesPanelOpen} onClick={() => setFilesPanelOpen(!filesPanelOpen)}>
+            <FolderTree />
           </IconButton>
         </div>
         <IconButton label="설정" onClick={() => setSettingsOpen(true)}>

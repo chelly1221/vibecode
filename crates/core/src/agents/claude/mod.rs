@@ -24,7 +24,7 @@ use super::{AgentSession, EventSender, StartArgs};
 use crate::backend::{process::spawn_tracked, CommandSpec, ExecBackend, PID_MARKER};
 use crate::error::{CoreError, Result};
 use crate::permission::{PermissionAsk, PermissionBroker};
-use crate::types::{PermissionReply, Provider, SessionConfig, SessionConfigPatch, SessionEvent};
+use crate::types::{McpServerConfig, PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent};
 use args::{PermissionTransport, SpawnPlan};
 use parser::{Parsed, Parser};
 
@@ -55,6 +55,7 @@ struct Inner {
     events: EventSender,
     broker: Arc<PermissionBroker>,
     transport: PermissionTransport,
+    mcp_servers: Vec<McpServerConfig>,
     config: Mutex<SessionConfig>,
     proc: Mutex<ProcState>,
     pending_ctl: StdMutex<HashMap<String, oneshot::Sender<std::result::Result<Value, String>>>>,
@@ -79,6 +80,7 @@ impl ClaudeSession {
             events: args.events.clone(),
             broker: broker.clone(),
             transport,
+            mcp_servers: args.mcp_servers.clone(),
             config: Mutex::new(args.config.clone()),
             proc: Mutex::new(ProcState::default()),
             pending_ctl: StdMutex::new(HashMap::new()),
@@ -110,6 +112,7 @@ impl Inner {
             mcp_url: Some(&mcp_url),
             resume_ref,
             fork,
+            mcp_servers: &self.mcp_servers,
         });
         tracing::info!(session = %self.session_id, "spawning claude: {} {}", spec.program, spec.args.join(" "));
         let mut cmd = self.backend.command(&spec);
@@ -379,6 +382,10 @@ impl AgentSession for ClaudeSession {
 
     async fn reply_permission(&self, reply: PermissionReply) -> Result<()> {
         self.inner.broker.resolve(reply)
+    }
+
+    async fn answer_question(&self, request_id: String, answers: Vec<QuestionAnswer>) -> Result<()> {
+        self.inner.broker.resolve_question(&request_id, answers)
     }
 
     async fn update_config(&self, patch: SessionConfigPatch) -> Result<()> {

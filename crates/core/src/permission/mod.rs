@@ -24,7 +24,7 @@ use tokio::sync::oneshot;
 
 use crate::agents::EventSender;
 use crate::error::{CoreError, Result};
-use crate::types::{PermissionDecision, PermissionKind, PermissionReply, SessionEvent};
+use crate::types::{AgentQuestion, PermissionDecision, PermissionKind, PermissionReply, QuestionAnswer, QuestionOption, SessionEvent};
 
 pub const SERVER_NAME: &str = "vibecode";
 pub const TOOL_NAME: &str = "approve";
@@ -71,10 +71,17 @@ struct Pending {
     tx: oneshot::Sender<PermissionReply>,
 }
 
+struct PendingQuestion {
+    session_id: String,
+    tx: oneshot::Sender<Vec<QuestionAnswer>>,
+}
+
 #[derive(Default)]
 struct Inner {
     senders: Mutex<HashMap<String, EventSender>>,
     pending: Mutex<HashMap<String, Pending>>,
+    /// AskUserQuestion prompts waiting for `resolve_question`.
+    pending_questions: Mutex<HashMap<String, PendingQuestion>>,
     /// Per-session "allow for the rest of the session" keys.
     session_allow: Mutex<HashMap<String, HashSet<String>>>,
 }
@@ -132,6 +139,12 @@ impl PermissionBroker {
         for p in drained {
             let _ = p.tx.send(PermissionReply { request_id: String::new(), decision: PermissionDecision::Deny, message: Some("세션이 종료되었습니다".into()) });
         }
+        let drained_q: Vec<PendingQuestion> = {
+            let mut pending = self.inner.pending_questions.lock().unwrap();
+            let ids: Vec<String> = pending.iter().filter(|(_, p)| p.session_id == session_id).map(|(k, _)| k.clone()).collect();
+            ids.into_iter().filter_map(|id| pending.remove(&id)).collect()
+        };
+        drop(drained_q); // dropping the senders makes the waiting `ask` deny
     }
 
     pub fn has_session(&self, session_id: &str) -> bool {
@@ -154,11 +167,52 @@ impl PermissionBroker {
         self.inner.pending.lock().unwrap().len()
     }
 
+    /// Deliver the user's answers for a pending `SessionEvent::Question`.
+    pub fn resolve_question(&self, request_id: &str, answers: Vec<QuestionAnswer>) -> Result<()> {
+        let pending = self.inner.pending_questions.lock().unwrap().remove(request_id);
+        match pending {
+            Some(p) => p.tx.send(answers).map_err(|_| CoreError::msg("question already resolved")),
+            None => Err(CoreError::NotFound(format!("question {request_id}"))),
+        }
+    }
+
+    pub fn pending_question_count(&self) -> usize {
+        self.inner.pending_questions.lock().unwrap().len()
+    }
+
+    /// AskUserQuestion: show Claude's questions, wait for the answers, return them as
+    /// `updatedInput {questions, answers: {<question text>: <label | "a, b" | free text>}}`
+    /// (the shape documented for the Agent SDK's canUseTool).
+    async fn ask_question(&self, ask: PermissionAsk) -> PermissionOutcome {
+        let questions = parse_questions(&ask.input);
+        if questions.is_empty() {
+            return deny("AskUserQuestion 입력에 질문이 없습니다");
+        }
+        let Some(events) = self.inner.senders.lock().unwrap().get(&ask.session_id).cloned() else {
+            return deny("세션이 등록되어 있지 않습니다");
+        };
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.inner.pending_questions.lock().unwrap().insert(request_id.clone(), PendingQuestion { session_id: ask.session_id.clone(), tx });
+        let _ = events.send(SessionEvent::Question { request_id: request_id.clone(), questions: questions.clone() });
+        let answers = match tokio::time::timeout(ASK_TIMEOUT, rx).await {
+            Ok(Ok(a)) => Some(a),
+            _ => {
+                self.inner.pending_questions.lock().unwrap().remove(&request_id);
+                None
+            }
+        };
+        let _ = events.send(SessionEvent::QuestionResolved { request_id });
+        match answers {
+            Some(a) => PermissionOutcome { decision: PermissionDecision::Allow, result: json!({ "behavior": "allow", "updatedInput": question_updated_input(&ask.input, &questions, &a) }) },
+            None => deny("사용자가 질문에 답하지 않았습니다"),
+        }
+    }
+
     /// Ask the user. Emits `PermissionRequest`, waits for `resolve`, emits `PermissionResolved`.
     pub async fn ask(&self, ask: PermissionAsk) -> PermissionOutcome {
-        // AskUserQuestion has no UI yet: tell Claude to ask in plain text instead.
         if ask.tool_name == "AskUserQuestion" {
-            return deny("이 클라이언트는 구조화된 질문 UI를 지원하지 않습니다. 질문을 일반 텍스트로 사용자에게 물어보세요.");
+            return self.ask_question(ask).await;
         }
         let key = allow_key(&ask);
         if self.inner.session_allow.lock().unwrap().get(&ask.session_id).map(|s| s.contains(&key)).unwrap_or(false) {
@@ -200,6 +254,63 @@ impl PermissionBroker {
             PermissionDecision::Deny => deny(reply.message.as_deref().filter(|m| !m.trim().is_empty()).unwrap_or("사용자가 이 작업을 거부했습니다")),
         }
     }
+}
+
+/// `questions[]` from the AskUserQuestion input → UI questions. The question text doubles as
+/// the id because Claude keys answers by it.
+pub fn parse_questions(input: &Value) -> Vec<AgentQuestion> {
+    input
+        .get("questions")
+        .and_then(Value::as_array)
+        .map(|qs| {
+            qs.iter()
+                .filter_map(|q| {
+                    let question = q.get("question").and_then(Value::as_str)?.to_string();
+                    let options = q
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .map(|o| {
+                            o.iter()
+                                .filter_map(|opt| {
+                                    Some(QuestionOption {
+                                        label: opt.get("label").and_then(Value::as_str)?.to_string(),
+                                        description: opt.get("description").and_then(Value::as_str).map(String::from),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some(AgentQuestion {
+                        id: question.clone(),
+                        header: q.get("header").and_then(Value::as_str).unwrap_or("").to_string(),
+                        question,
+                        options,
+                        multi_select: q.get("multiSelect").and_then(Value::as_bool).unwrap_or(false),
+                        allow_free_text: true,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Build `updatedInput` for AskUserQuestion: original questions + `answers` keyed by question text.
+pub fn question_updated_input(input: &Value, questions: &[AgentQuestion], answers: &[QuestionAnswer]) -> Value {
+    let mut map = serde_json::Map::new();
+    for q in questions {
+        let picked: Vec<String> = answers
+            .iter()
+            .filter(|a| a.question_id == q.id)
+            .flat_map(|a| a.answers.iter().cloned())
+            .map(|a| a.trim().to_string())
+            .filter(|a| !a.is_empty())
+            .collect();
+        if picked.is_empty() {
+            continue;
+        }
+        map.insert(q.question.clone(), Value::String(picked.join(", ")));
+    }
+    json!({ "questions": input.get("questions").cloned().unwrap_or(Value::Array(vec![])), "answers": Value::Object(map) })
 }
 
 fn allow(ask: &PermissionAsk, updated_permissions: Vec<Value>) -> PermissionOutcome {
@@ -345,6 +456,57 @@ mod tests {
         let o = task.await.unwrap();
         assert_eq!(o.result["behavior"], "deny");
         assert_eq!(broker.pending_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn ask_user_question_round_trip() {
+        let broker = PermissionBroker::without_server();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        broker.register("q1", tx);
+        let input = json!({"questions": [
+            {"question": "Do you want to continue?", "header": "Continue", "options": [{"label": "Yes", "description": "go"}, {"label": "No", "description": "stop"}], "multiSelect": false},
+            {"question": "Which sections?", "header": "Sections", "options": [{"label": "Intro"}, {"label": "Outro"}], "multiSelect": true}
+        ]});
+        let mut a = ask("q1", "AskUserQuestion", input.clone());
+        a.suggestions.clear();
+        let b2 = broker.clone();
+        let task = tokio::spawn(async move { b2.ask(a).await });
+        let request_id = match rx.recv().await.unwrap() {
+            SessionEvent::Question { request_id, questions } => {
+                assert_eq!(questions.len(), 2);
+                assert_eq!(questions[0].header, "Continue");
+                assert_eq!(questions[0].options[1].label, "No");
+                assert!(questions[1].multi_select);
+                assert!(questions[0].allow_free_text);
+                request_id
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(broker.pending_question_count(), 1);
+        broker
+            .resolve_question(
+                &request_id,
+                vec![
+                    QuestionAnswer { question_id: "Do you want to continue?".into(), answers: vec!["Yes".into()] },
+                    QuestionAnswer { question_id: "Which sections?".into(), answers: vec!["Intro".into(), "Outro".into()] },
+                ],
+            )
+            .unwrap();
+        let outcome = task.await.unwrap();
+        assert_eq!(outcome.result["behavior"], "allow");
+        assert_eq!(outcome.result["updatedInput"]["questions"], input["questions"]);
+        assert_eq!(outcome.result["updatedInput"]["answers"]["Do you want to continue?"], "Yes");
+        assert_eq!(outcome.result["updatedInput"]["answers"]["Which sections?"], "Intro, Outro");
+        assert!(matches!(rx.recv().await.unwrap(), SessionEvent::QuestionResolved { .. }));
+        assert_eq!(broker.pending_question_count(), 0);
+        // unregister denies a pending question
+        let b3 = broker.clone();
+        let mut a2 = ask("q1", "AskUserQuestion", input);
+        a2.suggestions.clear();
+        let task = tokio::spawn(async move { b3.ask(a2).await });
+        let _ = rx.recv().await.unwrap();
+        broker.unregister("q1");
+        assert_eq!(task.await.unwrap().result["behavior"], "deny");
     }
 
     #[test]

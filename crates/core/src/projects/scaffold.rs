@@ -258,6 +258,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
                     Ok(Some(client)) => match client.create_repo(name, req.github_private, req.description.trim()).await {
                         Ok(repo) => {
                             rep.log(format!("저장소 생성: {}", repo.html_url));
+                            // SSH when a key exists on the backend; otherwise HTTPS, which Git::push authenticates with the stored token.
                             let url = if has_ssh_keys(&backend).await { repo.ssh_url.clone() } else { repo.clone_url.clone() };
                             match git.add_remote(&target, "origin", &url).await {
                                 Ok(()) => {

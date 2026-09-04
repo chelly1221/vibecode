@@ -1,9 +1,12 @@
 import { memo } from "react";
 import type { PermissionDecision } from "@/lib/bindings/PermissionDecision";
 import { Markdown } from "@/lib/markdown";
-import type { ChatItem } from "@/stores/sessions";
+import type { QuestionAnswer } from "@/lib/ipc";
+import type { ChatItem, SubagentState } from "@/stores/sessions";
 import { cn } from "@/lib/utils";
+import { CheckpointMarker } from "./CheckpointMarker";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./QuestionCard";
 import { PlanCard } from "./PlanCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCard } from "./ToolCard";
@@ -15,9 +18,11 @@ export interface MessageItemProps {
   isLast: boolean;
   running: boolean;
   onPermission: (requestId: string, decision: PermissionDecision, message?: string) => void;
+  onAnswer?: (requestId: string, answers: QuestionAnswer[]) => void | Promise<void>;
+  subagents?: Record<string, SubagentState>;
 }
 
-export const MessageItem = memo(function MessageItem({ item, isLast, running, onPermission }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ item, isLast, running, onPermission, onAnswer, subagents }: MessageItemProps) {
   switch (item.type) {
     case "user":
       return (
@@ -35,7 +40,7 @@ export const MessageItem = memo(function MessageItem({ item, isLast, running, on
     case "thinking":
       return <ThinkingBlock text={item.text} active={isLast && running} />;
     case "tool":
-      return <ToolCard item={item} />;
+      return <ToolCard item={item} subagents={subagents} />;
     case "permission":
       return (
         <PermissionCard
@@ -49,6 +54,19 @@ export const MessageItem = memo(function MessageItem({ item, isLast, running, on
       );
     case "plan":
       return <PlanCard steps={item.steps} />;
+    case "question":
+      return (
+        <QuestionCard
+          key={item.request_id}
+          requestId={item.request_id}
+          questions={item.questions}
+          answered={item.answered}
+          answers={item.answers}
+          onSubmit={onAnswer ? (answers) => onAnswer(item.request_id, answers) : undefined}
+        />
+      );
+    case "checkpoint":
+      return <CheckpointMarker item={item} />;
     case "system":
       return <TurnDivider item={item} />;
     default:
@@ -57,5 +75,5 @@ export const MessageItem = memo(function MessageItem({ item, isLast, running, on
 });
 
 export function itemSpacing(item: ChatItem): string {
-  return cn(item.type === "system" ? "my-0" : "my-2");
+  return cn(item.type === "system" || item.type === "checkpoint" ? "my-0" : "my-2");
 }

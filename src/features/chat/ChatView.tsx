@@ -1,18 +1,22 @@
 // Main chat area: session header, transcript, pending permission banner, composer.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderOpenIcon, Loader2Icon, MessageSquarePlusIcon, PlayIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { PermissionDecision } from "@/lib/bindings/PermissionDecision";
+import type { QuestionAnswer } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { LONG_SESSION_QUESTIONS, questionCount, useSessionsStore } from "@/stores/sessions";
 import { LongSessionBanner } from "./LongSessionBanner";
+import { CheckpointDialogs } from "./CheckpointDialogs";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { MessageList } from "./MessageList";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./QuestionCard";
+import { SubagentsDrawer } from "./SubagentsDrawer";
 import { SessionHeader } from "./SessionHeader";
 
 export function ChatView() {
@@ -28,7 +32,9 @@ export function ChatView() {
   const send = useSessionsStore((s) => s.send);
   const interrupt = useSessionsStore((s) => s.interrupt);
   const permissionReply = useSessionsStore((s) => s.permissionReply);
+  const answerQuestion = useSessionsStore((s) => s.answerQuestion);
   const dismissLongWarning = useSessionsStore((s) => s.dismissLongWarning);
+  const [subagentsOpen, setSubagentsOpen] = useState(false);
 
   const record = useMemo(() => {
     if (!activeSessionId) return null;
@@ -58,6 +64,18 @@ export function ChatView() {
       );
     },
     [activeSessionId, permissionReply],
+  );
+
+  const onAnswer = useCallback(
+    async (requestId: string, answers: QuestionAnswer[]) => {
+      if (!activeSessionId) return;
+      try {
+        await answerQuestion(activeSessionId, requestId, answers);
+      } catch (e) {
+        toast.error("답변을 보내지 못했습니다", { description: String(e) });
+      }
+    },
+    [activeSessionId, answerQuestion],
   );
 
   const onSend = useCallback(
@@ -122,13 +140,31 @@ export function ChatView() {
   }
 
   const pending = session.pendingPermissions[0];
+  const pendingQuestion = session.pendingQuestions[0];
   const questions = questionCount(session.items);
   const showLongWarning = questions >= LONG_SESSION_QUESTIONS && !session.longWarningDismissed;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
-      <SessionHeader session={session} />
-      <MessageList session={session} onPermission={onPermission} />
+    <div className="flex h-full min-h-0 flex-1">
+    <div className="flex h-full min-w-0 flex-1 flex-col">
+      <SessionHeader session={session} subagentsOpen={subagentsOpen} onToggleSubagents={() => setSubagentsOpen((v) => !v)} />
+      <MessageList session={session} onPermission={onPermission} onAnswer={onAnswer} />
+      {pendingQuestion && !pending && (
+        <div className="border-t bg-sky-500/5 px-4 py-2">
+          <div className="mx-auto w-full max-w-3xl">
+            <QuestionCard
+              key={pendingQuestion.request_id}
+              requestId={pendingQuestion.request_id}
+              questions={pendingQuestion.questions}
+              compact
+              onSubmit={(answers) => onAnswer(pendingQuestion.request_id, answers)}
+            />
+            {session.pendingQuestions.length > 1 && (
+              <div className="mt-1 text-xs text-muted-foreground">대기 중인 질문 {session.pendingQuestions.length}개</div>
+            )}
+          </div>
+        </div>
+      )}
       {pending && (
         <div className="border-t bg-amber-500/5 px-4 py-2">
           <div className="mx-auto w-full max-w-3xl">
@@ -160,6 +196,9 @@ export function ChatView() {
       )}
       <Composer running={session.running} starting={session.starting} live={session.live} onSend={onSend} onInterrupt={onInterrupt} />
       <NewSessionDialog />
+      <CheckpointDialogs />
+    </div>
+    {subagentsOpen && <SubagentsDrawer subagents={session.subagents} onClose={() => setSubagentsOpen(false)} />}
     </div>
   );
 }

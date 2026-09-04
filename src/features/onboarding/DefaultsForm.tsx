@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { ipc, type AppSettings, type ModelInfo, type Provider } from "@/lib/ipc";
 import { EFFORT_OPTIONS, PERMISSION_OPTIONS, PROVIDER_OPTIONS, THEME_OPTIONS } from "@/features/settings/options";
 
@@ -171,6 +172,27 @@ export function DefaultsForm({ draft, onChange, showTheme = true }: Props) {
           <Button type="button" variant="outline" onClick={pickRoot}>
             <FolderOpen className="size-4" /> 폴더 선택
           </Button>
+        </div>
+      </div>
+
+      <div className="space-y-2 md:col-span-2">
+        <Label>동작</Label>
+        <div className="grid gap-2 rounded-lg border p-3 md:grid-cols-3">
+          {(
+            [
+              ["checkpoints_enabled", "턴마다 체크포인트 저장", "에이전트가 작업하기 전 상태를 저장해 되돌릴 수 있습니다."],
+              ["notifications_enabled", "작업 완료·승인 필요 시 알림", "다른 창을 보고 있을 때 Windows 알림을 띄웁니다."],
+              ["auto_update_check", "시작할 때 업데이트 확인", "새 버전이 있으면 알려만 줍니다. 설치는 설정 > 정보에서."],
+            ] as const
+          ).map(([key, label, desc]) => (
+            <label key={key} className="flex items-start gap-2 text-sm">
+              <Switch checked={draft[key]} onCheckedChange={(v) => onChange({ [key]: v } as Partial<AppSettings>)} className="mt-0.5" />
+              <span>
+                <span className="block">{label}</span>
+                <span className="block text-xs text-muted-foreground">{desc}</span>
+              </span>
+            </label>
+          ))}
         </div>
       </div>
 
