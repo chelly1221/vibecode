@@ -78,7 +78,7 @@ function initialForm(settings: AppSettings | null): WizardForm {
     projectType: null,
     stackId: null,
     stackChosen: false,
-    gitInit: true,
+    gitInit: false,
     createGithub: false,
     githubPrivate: true,
     generateDocs: true,
@@ -88,7 +88,7 @@ function initialForm(settings: AppSettings | null): WizardForm {
         ? (settings?.default_model_codex ?? null)
         : (settings?.default_model_claude ?? null),
     effort: settings?.default_effort ?? "high",
-    permission: settings?.default_permission ?? "auto_edit",
+    permission: settings?.default_permission ?? "full_auto",
   };
 }
 

@@ -32,7 +32,7 @@ export function NewSessionDialog() {
   const [provider, setProvider] = useState<Provider>("claude");
   const [model, setModel] = useState<string | null>(null);
   const [effort, setEffort] = useState<Effort | null>(null);
-  const [permission, setPermission] = useState<PermissionPreset>("auto_edit");
+  const [permission, setPermission] = useState<PermissionPreset>("full_auto");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,7 +44,7 @@ export function NewSessionDialog() {
     if (!open) return;
     const p = project?.default_provider ?? settings?.default_provider ?? "claude";
     setProvider(p);
-    setPermission(project?.default_permission ?? settings?.default_permission ?? "auto_edit");
+    setPermission(project?.default_permission ?? settings?.default_permission ?? "full_auto");
     setEffort(project?.default_effort ?? settings?.default_effort ?? null);
     setSystemPrompt("");
     setAdvanced(false);

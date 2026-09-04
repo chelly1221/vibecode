@@ -143,7 +143,7 @@ impl Default for AppSettings {
             default_model_claude: None,
             default_model_codex: None,
             default_effort: Effort::High,
-            default_permission: PermissionPreset::AutoEdit,
+            default_permission: PermissionPreset::FullAuto,
             projects_root: None,
             claude_bin: None,
             codex_bin: None,
