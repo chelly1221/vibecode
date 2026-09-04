@@ -36,6 +36,17 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
 - On this dev machine: Claude Code is installed and logged in inside WSL (`Ubuntu`), not on Windows.
   The app therefore defaults to the WSL backend when `claude` is missing natively but present in WSL.
 
+## UI preview (디자인 모드)
+- `src-tauri/src/commands/preview.rs` creates a Tauri child webview (label `preview`, `unstable` feature) positioned over the
+  `PreviewPane` host element; the React side reports bounds via `preview_set_bounds` and hides it while dialogs are open.
+- `src-tauri/preview-init.js` is injected into the preview page (element picker + console capture). It reports back with
+  `plugin:event|emit` → event `preview:report` (allowed by `core:default` for the remote URLs listed in
+  `src-tauri/capabilities/preview.json`). App commands are NOT callable from the preview page (remote origin).
+- Dev servers run through `vibecode_core::preview::DevServerManager` (backend shell, URL detection from output,
+  process-tree stop). Stack defaults live in `resources/stacks.toml` (`dev_command`).
+- Dev-mode binary is `vibecode.exe`; kill that (not Vibecoder.exe) when restarting `cargo.exe tauri dev`. When driving the
+  preview webview with `scripts/cdp.mjs`, pass the target through WSLENV: `WSLENV=CDP_TARGET/w CDP_TARGET=localhost:8123`.
+
 ## Troubleshooting (dev machine)
 - If every `*.exe` call from WSL fails with `cannot execute binary file: Exec format error`, the `WSLInterop`
   binfmt entry was lost. Fix without sudo/restart:

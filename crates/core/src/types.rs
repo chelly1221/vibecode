@@ -308,6 +308,10 @@ pub struct StackInfo {
     /// Extra notes for CLAUDE.md / AGENTS.md (build/test commands, conventions).
     #[ts(optional = nullable)]
     pub agent_notes: Option<String>,
+    /// Command that starts a dev server whose URL can be shown in the UI preview (None = not a web UI).
+    #[ts(optional = nullable)]
+    #[serde(default)]
+    pub dev_command: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -654,6 +658,34 @@ pub struct StackRecommendation {
     /// 0-100
     pub score: i64,
     pub reason: String,
+}
+
+// ---------------------------------------------------------------------------
+// UI preview (project dev server shown in a child webview)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PreviewEvent {
+    Started { command: String },
+    Log { line: String, is_err: bool },
+    /// First local URL printed by the dev server (host normalised to localhost).
+    Url { url: String },
+    Exited {
+        #[ts(optional = nullable)]
+        code: Option<i32>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct PreviewStatus {
+    pub running: bool,
+    #[ts(optional = nullable)]
+    pub command: Option<String>,
+    #[ts(optional = nullable)]
+    pub url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

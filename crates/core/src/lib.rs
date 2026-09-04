@@ -15,6 +15,7 @@
 //! - `db`         SQLite persistence (projects, sessions, messages, settings)
 //! - `secrets`    OS keyring wrapper
 //! - `pty`        interactive terminal sessions (login flows)
+//! - `preview`    dev-server runner for the UI preview
 //! - `tools`      CLI detection and auth status
 
 pub mod agents;
@@ -28,6 +29,7 @@ pub mod git;
 pub mod github;
 pub mod managed;
 pub mod permission;
+pub mod preview;
 pub mod projects;
 pub mod pty;
 pub mod secrets;

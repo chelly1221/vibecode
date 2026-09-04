@@ -14,7 +14,10 @@ async function pageTarget() {
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/json`);
       const list = await res.json();
-      const page = list.find((t) => t.type === "page" && !/devtools/.test(t.url));
+      const want = process.env.CDP_TARGET; // substring of the target url to pick (child webviews share the port)
+      const isMain = (u) => u.includes("localhost:1420") || u.startsWith("http://tauri.localhost") || u.startsWith("tauri://");
+      const pages = list.filter((t) => t.type === "page" && !/devtools/.test(t.url));
+      const page = want ? pages.find((t) => t.url.includes(want)) : (pages.find((t) => isMain(t.url)) ?? pages[0]);
       if (page) return page;
       lastErr = new Error("no page target: " + JSON.stringify(list));
     } catch (e) {

@@ -8,6 +8,7 @@
 # ---------------------------------------------------------------- desktop
 [[stack]]
 id = "tauri-react"
+dev_command = "npm run dev"
 name = "Tauri 2 + Rust + React/TS"
 summary = "Rust 백엔드와 WebView 프론트로 가볍고 빠른 데스크톱 앱. 이 도구(vibecode)와 같은 스택."
 targets = ["windows", "macos", "linux", "cross_desktop"]
@@ -49,6 +50,7 @@ agent_notes = """
 
 [[stack]]
 id = "electron-vite"
+dev_command = "npm run dev"
 name = "Electron + Vite + React/TS"
 summary = "Chromium 내장 데스크톱 앱. Node API를 그대로 쓰며 웹 개발자에게 가장 익숙함."
 targets = ["windows", "macos", "linux", "cross_desktop"]
@@ -68,6 +70,7 @@ agent_notes = """
 
 [[stack]]
 id = "flutter-desktop"
+dev_command = "flutter run -d web-server --web-port 8080"
 name = "Flutter (데스크톱)"
 summary = "Dart 하나로 Windows·macOS·Linux 데스크톱 앱. 자체 렌더러라 UI가 일관됨."
 targets = ["windows", "macos", "linux", "cross_desktop"]
@@ -89,6 +92,7 @@ agent_notes = """
 # ---------------------------------------------------------------- web
 [[stack]]
 id = "nextjs"
+dev_command = "npm run dev"
 name = "Next.js (React, App Router)"
 summary = "SSR/SSG와 API 라우트를 갖춘 풀스택 React 프레임워크. Vercel 배포에 최적."
 targets = ["web", "server"]
@@ -109,6 +113,7 @@ agent_notes = """
 
 [[stack]]
 id = "sveltekit"
+dev_command = "npm run dev"
 name = "SvelteKit"
 summary = "코드량이 적고 빠른 풀스택 프레임워크. Svelte 5 runes."
 targets = ["web", "server"]
@@ -128,6 +133,7 @@ agent_notes = """
 
 [[stack]]
 id = "vite-react"
+dev_command = "npm run dev"
 name = "Vite + React SPA"
 summary = "서버 없는 순수 클라이언트 웹앱. 정적 호스팅에 올리기 가장 간단."
 targets = ["web"]
@@ -147,6 +153,7 @@ agent_notes = """
 
 [[stack]]
 id = "astro"
+dev_command = "npm run dev"
 name = "Astro"
 summary = "콘텐츠 중심 사이트(블로그, 문서, 랜딩). 기본 JS 0, 필요한 곳만 아일랜드."
 targets = ["web"]
@@ -167,6 +174,7 @@ agent_notes = """
 # ---------------------------------------------------------------- api / server
 [[stack]]
 id = "fastapi"
+dev_command = "uv run uvicorn main:app --reload --port 8000"
 name = "FastAPI (Python, uv)"
 summary = "타입 힌트 기반의 빠른 Python API 서버. 자동 OpenAPI 문서."
 targets = ["server", "linux", "windows"]
@@ -187,6 +195,7 @@ agent_notes = """
 
 [[stack]]
 id = "hono"
+dev_command = "npm run dev"
 name = "Hono (TypeScript)"
 summary = "가볍고 표준(Web API) 기반인 TS 서버. Node/Bun/Cloudflare Workers 어디서나."
 targets = ["server", "web"]
@@ -206,6 +215,7 @@ agent_notes = """
 
 [[stack]]
 id = "nestjs"
+dev_command = "npm run start:dev"
 name = "NestJS (TypeScript)"
 summary = "모듈·DI 구조가 강제되는 엔터프라이즈형 Node 서버 프레임워크."
 targets = ["server"]
@@ -285,6 +295,7 @@ agent_notes = """
 # ---------------------------------------------------------------- mobile
 [[stack]]
 id = "flutter-mobile"
+dev_command = "flutter run -d web-server --web-port 8080"
 name = "Flutter (모바일)"
 summary = "Dart 하나로 Android·iOS 앱. 일관된 UI와 빠른 개발."
 targets = ["android", "ios"]
@@ -305,6 +316,7 @@ agent_notes = """
 
 [[stack]]
 id = "expo"
+dev_command = "npx expo start --web --port 8081"
 name = "Expo (React Native, TS)"
 summary = "React로 만드는 Android·iOS 앱. Expo Go로 즉시 테스트."
 targets = ["android", "ios"]

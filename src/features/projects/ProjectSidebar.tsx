@@ -11,6 +11,7 @@ import {
   SquareTerminal,
   Trash2,
   FolderTree,
+  MonitorPlay,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -121,6 +122,8 @@ export function ProjectSidebar() {
   const setGitPanelOpen = useAppStore((s) => s.setGitPanelOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
+  const previewOpen = useAppStore((s) => s.previewOpen);
+  const setPreviewOpen = useAppStore((s) => s.setPreviewOpen);
   const setFilesPanelOpen = useAppStore((s) => s.setFilesPanelOpen);
   const setTerminalOpen = useAppStore((s) => s.setTerminalOpen);
   const [pendingRemove, setPendingRemove] = useState<ProjectRecord | null>(null);
@@ -203,6 +206,9 @@ export function ProjectSidebar() {
           </IconButton>
           <IconButton label="파일" pressed={filesPanelOpen} onClick={() => setFilesPanelOpen(!filesPanelOpen)}>
             <FolderTree />
+          </IconButton>
+          <IconButton label="UI 미리보기" pressed={previewOpen} onClick={() => setPreviewOpen(!previewOpen)}>
+            <MonitorPlay />
           </IconButton>
         </div>
         <IconButton label="설정" onClick={() => setSettingsOpen(true)}>

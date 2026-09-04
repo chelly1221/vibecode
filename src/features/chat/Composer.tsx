@@ -1,6 +1,7 @@
 // Message input: Enter sends, Shift+Enter newline, IME-safe, OS drag & drop inserts paths.
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useAppStore } from "@/stores/app";
 import { Loader2Icon, SendHorizonalIcon, SquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +28,19 @@ function isTauri(): boolean {
 
 export function Composer({ disabled, running, starting, live, onSend, onInterrupt }: ComposerProps) {
   const [text, setText] = useState("");
+  const composerInsert = useAppStore((s) => s.composerInsert);
+  // Text handed over by the UI preview (element picker / console) is appended and focused.
+  useEffect(() => {
+    if (!composerInsert) return;
+    setText((t) => (t.trim() ? `${t.trimEnd()}\n\n${composerInsert.text}` : composerInsert.text));
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el) {
+        el.focus();
+        el.selectionStart = el.selectionEnd = el.value.length;
+      }
+    });
+  }, [composerInsert]);
   const [sending, setSending] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const [dragging, setDragging] = useState(false);

@@ -24,6 +24,8 @@ import type { GitStatus } from "./bindings/GitStatus";
 import type { MessageRecord } from "./bindings/MessageRecord";
 import type { ModelInfo } from "./bindings/ModelInfo";
 import type { PermissionReply } from "./bindings/PermissionReply";
+import type { PreviewEvent } from "./bindings/PreviewEvent";
+import type { PreviewStatus } from "./bindings/PreviewStatus";
 import type { ProjectRecord } from "./bindings/ProjectRecord";
 import type { ProjectType } from "./bindings/ProjectType";
 import type { ProvisionEvent } from "./bindings/ProvisionEvent";
@@ -39,6 +41,13 @@ import type { StackInfo } from "./bindings/StackInfo";
 import type { TargetOs } from "./bindings/TargetOs";
 import type { ToolStatus } from "./bindings/ToolStatus";
 import type { WslStatus } from "./bindings/WslStatus";
+
+export interface PreviewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 function channel<T>(handler: (msg: T) => void): Channel<T> {
   const ch = new Channel<T>();
@@ -133,6 +142,20 @@ export const ipc = {
     read: (projectId: string, relPath: string) => invoke<FsFile>("fs_read", { projectId, relPath }),
   },
 
+  preview: {
+    /** Create or navigate the child webview at `bounds` (CSS px relative to the window's client area). */
+    open: (url: string, bounds: PreviewBounds) => invoke<void>("preview_open", { url, bounds }),
+    setBounds: (bounds: PreviewBounds) => invoke<void>("preview_set_bounds", { bounds }),
+    setVisible: (visible: boolean) => invoke<void>("preview_set_visible", { visible }),
+    close: () => invoke<void>("preview_close"),
+    reload: () => invoke<void>("preview_reload"),
+    eval: (js: string) => invoke<void>("preview_eval", { js }),
+    serverStart: (projectId: string, command: string, onEvent: (e: PreviewEvent) => void) =>
+      invoke<void>("preview_server_start", { projectId, command, onEvent: channel(onEvent) }),
+    serverStop: (projectId: string) => invoke<void>("preview_server_stop", { projectId }),
+    serverStatus: (projectId: string) => invoke<PreviewStatus>("preview_server_status", { projectId }),
+  },
+
   git: {
     status: (projectId: string) => invoke<GitStatus>("git_status", { projectId }),
     diff: (projectId: string, path: string | null, staged: boolean) =>
@@ -190,6 +213,8 @@ export type {
   MessageRecord,
   ModelInfo,
   PermissionReply,
+  PreviewEvent,
+  PreviewStatus,
   ProjectRecord,
   ProjectType,
   Provider,

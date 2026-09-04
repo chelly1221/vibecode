@@ -5566,6 +5566,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tokio",
  "tracing",
+ "url",
  "vibecode-core",
 ]
 

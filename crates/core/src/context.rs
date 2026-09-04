@@ -11,6 +11,7 @@ use crate::backend::{create_backend, ExecBackend};
 use crate::db::Db;
 use crate::error::Result;
 use crate::permission::PermissionBroker;
+use crate::preview::DevServerManager;
 use crate::pty::PtyManager;
 use crate::types::{AppSettings, Provider};
 
@@ -23,6 +24,7 @@ pub struct AppContext {
     pub permission: RwLock<Option<Arc<PermissionBroker>>>,
     pub codex: CodexHost,
     pub pty: PtyManager,
+    pub preview: Arc<DevServerManager>,
 }
 
 impl AppContext {
@@ -46,6 +48,7 @@ impl AppContext {
             permission: RwLock::new(None),
             codex: CodexHost::new(),
             pty: PtyManager::new(),
+            preview: Arc::new(DevServerManager::new()),
         }))
     }
 
@@ -95,6 +98,7 @@ impl AppContext {
     }
 
     pub async fn shutdown(&self) {
+        self.preview.stop_all().await;
         self.sessions.close_all().await;
         self.codex.shutdown().await;
     }

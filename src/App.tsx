@@ -13,12 +13,15 @@ import { FilesPanel } from "@/features/files/FilesPanel";
 import { GitPanel } from "@/features/git/GitPanel";
 import { TerminalPanel } from "@/features/terminal/TerminalPanel";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { PreviewPane } from "@/features/preview/PreviewPane";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 
 export default function App() {
   const settings = useAppStore((s) => s.settings);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const loadProjects = useAppStore((s) => s.loadProjects);
   const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
+  const previewOpen = useAppStore((s) => s.previewOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
   const activeProjectId = useAppStore((s) => s.activeProjectId);
@@ -72,7 +75,21 @@ export default function App() {
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1">
                 <main className="flex min-w-0 flex-1 flex-col">
-                  <ChatView />
+                  {previewOpen ? (
+                    <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+                      <ResizablePanel defaultSize={45} minSize={25}>
+                        <div className="flex h-full min-h-0 flex-col">
+                          <ChatView />
+                        </div>
+                      </ResizablePanel>
+                      <ResizableHandle withHandle />
+                      <ResizablePanel defaultSize={55} minSize={25}>
+                        <PreviewPane />
+                      </ResizablePanel>
+                    </ResizablePanelGroup>
+                  ) : (
+                    <ChatView />
+                  )}
                 </main>
                 {gitPanelOpen && (
                   <aside className="w-80 shrink-0 border-l">

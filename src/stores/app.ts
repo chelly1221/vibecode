@@ -17,6 +17,9 @@ interface AppState {
   gitPanelOpen: boolean;
   terminalOpen: boolean;
   newSessionOpen: boolean;
+  previewOpen: boolean;
+  /** Text the chat composer should append (set by the preview element picker). */
+  composerInsert: { text: string; nonce: number } | null;
   filesPanelOpen: boolean;
 
   loadSettings: () => Promise<AppSettings>;
@@ -30,6 +33,8 @@ interface AppState {
   setGitPanelOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   setNewSessionOpen: (open: boolean) => void;
+  setPreviewOpen: (open: boolean) => void;
+  insertIntoComposer: (text: string) => void;
   setFilesPanelOpen: (open: boolean) => void;
 }
 
@@ -44,6 +49,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   gitPanelOpen: true,
   terminalOpen: false,
   newSessionOpen: false,
+  previewOpen: false,
+  composerInsert: null,
   filesPanelOpen: false,
 
   loadSettings: async () => {
@@ -74,5 +81,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setGitPanelOpen: (open) => set({ gitPanelOpen: open }),
   setTerminalOpen: (open) => set({ terminalOpen: open }),
   setNewSessionOpen: (open) => set({ newSessionOpen: open }),
+  setPreviewOpen: (open) => set({ previewOpen: open }),
+  insertIntoComposer: (text) => set({ composerInsert: { text, nonce: Date.now() } }),
   setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
 }));

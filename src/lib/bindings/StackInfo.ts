@@ -14,4 +14,8 @@ prerequisites: Array<string>, pros: Array<string>, cons: Array<string>, recommen
 /**
  * Extra notes for CLAUDE.md / AGENTS.md (build/test commands, conventions).
  */
-agent_notes?: string | null, };
+agent_notes?: string | null, 
+/**
+ * Command that starts a dev server whose URL can be shown in the UI preview (None = not a web UI).
+ */
+dev_command?: string | null, };

@@ -4,6 +4,7 @@ pub mod checkpoints;
 pub mod env;
 pub mod fs;
 pub mod git;
+pub mod preview;
 pub mod github;
 pub mod projects;
 pub mod pty;
@@ -56,6 +57,15 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         checkpoints::checkpoint_diff,
         fs::fs_list,
         fs::fs_read,
+        preview::preview_open,
+        preview::preview_set_bounds,
+        preview::preview_set_visible,
+        preview::preview_close,
+        preview::preview_reload,
+        preview::preview_eval,
+        preview::preview_server_start,
+        preview::preview_server_stop,
+        preview::preview_server_status,
         git::git_status,
         git::git_diff,
         git::git_stage,
