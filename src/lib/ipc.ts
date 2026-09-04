@@ -3,7 +3,16 @@
 // Argument keys are camelCase (Tauri converts to the Rust snake_case params).
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { AgentQuestion } from "./bindings/AgentQuestion";
 import type { AppSettings } from "./bindings/AppSettings";
+import type { CheckpointRecord } from "./bindings/CheckpointRecord";
+import type { FsEntry } from "./bindings/FsEntry";
+import type { FsFile } from "./bindings/FsFile";
+import type { McpServerConfig } from "./bindings/McpServerConfig";
+import type { QuestionAnswer } from "./bindings/QuestionAnswer";
+import type { SshKeyInfo } from "./bindings/SshKeyInfo";
+import type { StackRecommendRequest } from "./bindings/StackRecommendRequest";
+import type { StackRecommendation } from "./bindings/StackRecommendation";
 import type { AuthStatus } from "./bindings/AuthStatus";
 import type { BackendConfig } from "./bindings/BackendConfig";
 import type { CreateProjectRequest } from "./bindings/CreateProjectRequest";
@@ -64,6 +73,11 @@ export const ipc = {
     /** Download rootfs, import the distro, install tools. Streams progress to `onEvent`. */
     provision: (onEvent: (e: ProvisionEvent) => void) => invoke<void>("env_provision", { onEvent: channel(onEvent) }),
     removeManaged: () => invoke<void>("env_remove_managed"),
+    /** SSH key on the active backend (for GitHub pushes). */
+    sshKeyInfo: () => invoke<SshKeyInfo>("env_ssh_key_info"),
+    sshGenerateKey: () => invoke<SshKeyInfo>("env_ssh_generate_key"),
+    /** Resolves with the GitHub username when the key is registered. */
+    sshTestGithub: () => invoke<string>("env_ssh_test_github"),
   },
 
   projects: {
@@ -77,6 +91,8 @@ export const ipc = {
     stacksList: () => invoke<StackInfo[]>("stacks_list"),
     stacksRecommend: (targetOs: TargetOs, projectType: ProjectType) =>
       invoke<StackInfo[]>("stacks_recommend", { targetOs, projectType }),
+    /** One-shot agent call ranking catalog stacks for a free-text description. */
+    stacksAiRecommend: (req: StackRecommendRequest) => invoke<StackRecommendation[]>("stacks_ai_recommend", { req }),
   },
 
   sessions: {
@@ -93,6 +109,28 @@ export const ipc = {
     list: (projectId: string) => invoke<SessionRecord[]>("sessions_list", { projectId }),
     messages: (sessionId: string) => invoke<MessageRecord[]>("session_messages", { sessionId }),
     delete: (sessionId: string) => invoke<void>("session_delete", { sessionId }),
+    answerQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
+      invoke<void>("session_answer_question", { sessionId, requestId, answers }),
+    rename: (sessionId: string, title: string) => invoke<void>("session_rename", { sessionId, title }),
+    setArchived: (sessionId: string, archived: boolean) => invoke<void>("session_set_archived", { sessionId, archived }),
+    exportMarkdown: (sessionId: string) => invoke<string>("session_export_markdown", { sessionId }),
+    exportToFile: (sessionId: string, path: string) => invoke<void>("session_export_to_file", { sessionId, path }),
+  },
+
+  checkpoints: {
+    list: (projectId: string, sessionId?: string | null) =>
+      invoke<CheckpointRecord[]>("checkpoints_list", { projectId, sessionId: sessionId ?? null }),
+    /** Manual snapshot; null when nothing changed. */
+    create: (projectId: string, sessionId?: string | null, label?: string) =>
+      invoke<CheckpointRecord | null>("checkpoint_create", { projectId, sessionId: sessionId ?? null, label: label ?? null }),
+    /** Restores the tree; resolves with the safety checkpoint taken first. */
+    restore: (checkpointId: string) => invoke<CheckpointRecord>("checkpoint_restore", { checkpointId }),
+    diff: (checkpointId: string) => invoke<string>("checkpoint_diff", { checkpointId }),
+  },
+
+  fs: {
+    list: (projectId: string, relPath?: string) => invoke<FsEntry[]>("fs_list", { projectId, relPath: relPath ?? null }),
+    read: (projectId: string, relPath: string) => invoke<FsFile>("fs_read", { projectId, relPath }),
   },
 
   git: {
@@ -131,7 +169,16 @@ export const ipc = {
 };
 
 export type {
+  AgentQuestion,
   AppSettings,
+  CheckpointRecord,
+  FsEntry,
+  FsFile,
+  McpServerConfig,
+  QuestionAnswer,
+  SshKeyInfo,
+  StackRecommendRequest,
+  StackRecommendation,
   AuthStatus,
   BackendConfig,
   CreateProjectRequest,

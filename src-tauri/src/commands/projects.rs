@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 use vibecode_core::projects::{catalog, scaffold};
-use vibecode_core::types::{CreateProjectRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, TargetOs};
+use vibecode_core::types::{CreateProjectRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
 
 use crate::state::{err, AppState};
 
@@ -47,4 +47,12 @@ pub async fn stacks_list() -> Result<Vec<StackInfo>, String> {
 #[tauri::command]
 pub async fn stacks_recommend(target_os: TargetOs, project_type: ProjectType) -> Result<Vec<StackInfo>, String> {
     catalog::recommend(target_os, project_type).map_err(err)
+}
+
+/// One-shot agent call ranking catalog stacks for a free-text description.
+#[tauri::command]
+pub async fn stacks_ai_recommend(state: State<'_, AppState>, req: StackRecommendRequest) -> Result<Vec<StackRecommendation>, String> {
+    let backend = state.ctx.backend().await;
+    let bin = state.ctx.bin_override(req.provider).await;
+    vibecode_core::projects::ai_recommend::recommend(backend, bin, req).await.map_err(err)
 }

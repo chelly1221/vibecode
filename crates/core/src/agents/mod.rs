@@ -3,6 +3,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod export;
 pub mod manager;
 pub mod oneshot;
 
@@ -14,7 +15,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::backend::ExecBackend;
 use crate::error::Result;
-use crate::types::{PermissionReply, Provider, SessionConfig, SessionConfigPatch, SessionEvent};
+use crate::types::{PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent};
 
 pub use manager::SessionManager;
 
@@ -44,6 +45,11 @@ pub trait AgentSession: Send + Sync {
     async fn interrupt(&self) -> Result<()>;
     /// Answer a pending permission request.
     async fn reply_permission(&self, reply: PermissionReply) -> Result<()>;
+    /// Answer a pending `SessionEvent::Question`. Default: unsupported.
+    async fn answer_question(&self, request_id: String, answers: Vec<QuestionAnswer>) -> Result<()> {
+        let _ = (request_id, answers);
+        Err(crate::error::CoreError::NotImplemented("answer_question"))
+    }
     /// Change model/effort/permission for subsequent turns.
     async fn update_config(&self, patch: SessionConfigPatch) -> Result<()>;
     /// Terminate the provider process/thread.

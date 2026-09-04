@@ -1,6 +1,8 @@
 //! IPC surface. Command names are the contract with `src/lib/ipc.ts`; keep both in sync.
 
+pub mod checkpoints;
 pub mod env;
+pub mod fs;
 pub mod git;
 pub mod github;
 pub mod projects;
@@ -23,6 +25,9 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         env::env_reboot_to_firmware,
         env::env_provision,
         env::env_remove_managed,
+        env::env_ssh_key_info,
+        env::env_ssh_generate_key,
+        env::env_ssh_test_github,
         projects::projects_list,
         projects::projects_get,
         projects::projects_create,
@@ -30,6 +35,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         projects::projects_remove,
         projects::stacks_list,
         projects::stacks_recommend,
+        projects::stacks_ai_recommend,
         sessions::session_start,
         sessions::session_send,
         sessions::session_interrupt,
@@ -39,6 +45,17 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         sessions::sessions_list,
         sessions::session_messages,
         sessions::session_delete,
+        sessions::session_answer_question,
+        sessions::session_rename,
+        sessions::session_set_archived,
+        sessions::session_export_markdown,
+        sessions::session_export_to_file,
+        checkpoints::checkpoints_list,
+        checkpoints::checkpoint_create,
+        checkpoints::checkpoint_restore,
+        checkpoints::checkpoint_diff,
+        fs::fs_list,
+        fs::fs_read,
         git::git_status,
         git::git_diff,
         git::git_stage,

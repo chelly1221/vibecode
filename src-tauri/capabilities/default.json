@@ -18,6 +18,13 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-close",
-    "core:window:allow-is-maximized"
+    "core:window:allow-is-maximized",
+    "notification:default",
+    "updater:default",
+    "process:default",
+    "core:window:allow-request-user-attention",
+    "core:window:allow-is-focused",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize"
   ]
 }

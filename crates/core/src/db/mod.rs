@@ -10,8 +10,8 @@ use serde_json::Value;
 
 use crate::error::{CoreError, Result};
 use crate::types::{
-    AppSettings, Effort, MessageKind, MessageRecord, PermissionPreset, ProjectRecord, ProjectType, Provider, SessionRecord,
-    TargetOs,
+    AppSettings, CheckpointRecord, Effort, MessageKind, MessageRecord, PermissionPreset, ProjectRecord, ProjectType, Provider,
+    SessionRecord, TargetOs,
 };
 
 pub struct Db {
@@ -104,6 +104,7 @@ fn row_session(r: &Row) -> rusqlite::Result<SessionRecord> {
         effort: enum_parse::<Effort>(r.get("effort")?),
         permission: enum_parse::<PermissionPreset>(r.get("permission")?).unwrap_or(PermissionPreset::AskEverything),
         total_cost_usd: r.get("total_cost_usd")?,
+        archived: r.get::<_, Option<i64>>("archived").ok().flatten().unwrap_or(0) != 0,
         created_at: parse_ts(r.get("created_at")?),
         last_used_at: parse_ts(r.get("last_used_at")?),
     })
@@ -285,6 +286,28 @@ impl Db {
         })
     }
 
+    // ---- session management (implemented by the checkpoints/fs fork) ----
+    pub fn rename_session(&self, _id: &str, _title: &str) -> Result<()> {
+        Err(CoreError::NotImplemented("db::rename_session"))
+    }
+    pub fn set_session_archived(&self, _id: &str, _archived: bool) -> Result<()> {
+        Err(CoreError::NotImplemented("db::set_session_archived"))
+    }
+
+    // ---- checkpoints ----
+    pub fn insert_checkpoint(&self, _c: &CheckpointRecord) -> Result<()> {
+        Err(CoreError::NotImplemented("db::insert_checkpoint"))
+    }
+    pub fn list_checkpoints(&self, _project_id: &str, _session_id: Option<&str>) -> Result<Vec<CheckpointRecord>> {
+        Err(CoreError::NotImplemented("db::list_checkpoints"))
+    }
+    pub fn get_checkpoint(&self, _id: &str) -> Result<CheckpointRecord> {
+        Err(CoreError::NotImplemented("db::get_checkpoint"))
+    }
+    pub fn next_checkpoint_seq(&self, _project_id: &str) -> Result<i64> {
+        Err(CoreError::NotImplemented("db::next_checkpoint_seq"))
+    }
+
     // ---- messages ----
     pub fn append_message(&self, session_id: &str, kind: MessageKind, payload: Value) -> Result<MessageRecord> {
         self.with_conn(|c| {
@@ -367,6 +390,7 @@ mod tests {
             effort: Some(Effort::XHigh),
             permission: PermissionPreset::FullAuto,
             total_cost_usd: 0.0,
+            archived: false,
             created_at: Utc::now(),
             last_used_at: Utc::now(),
         };

@@ -7,4 +7,8 @@ export type SessionRecord = { id: string, project_id: string, provider: Provider
 /**
  * Provider-side id used for resume (Claude session_id / Codex thread id).
  */
-external_ref?: string | null, title: string, model?: string | null, effort?: Effort | null, permission: PermissionPreset, total_cost_usd: number, created_at: string, last_used_at: string, };
+external_ref?: string | null, title: string, model?: string | null, effort?: Effort | null, permission: PermissionPreset, total_cost_usd: number, 
+/**
+ * Hidden from the default session list.
+ */
+archived: boolean, created_at: string, last_used_at: string, };

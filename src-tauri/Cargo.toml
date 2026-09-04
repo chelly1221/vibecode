@@ -30,4 +30,7 @@ tracing = "0.1.44"
 anyhow = "1.0.104"
 vibecode-core = { version = "0.1.0", path = "../crates/core" }
 log = "0.4.34"
+tauri-plugin-notification = "2.4.0"
+tauri-plugin-updater = "2.11.0"
+tauri-plugin-process = "2.3.1"
 

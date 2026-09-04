@@ -520,6 +520,10 @@ mod tests {
                 SessionEvent::TurnEnd { .. } => "turn_end",
                 SessionEvent::Error { .. } => "error",
                 SessionEvent::Exited { .. } => "exited",
+                SessionEvent::Question { .. } => "question",
+                SessionEvent::QuestionResolved { .. } => "question_resolved",
+                SessionEvent::Subagent { .. } => "subagent",
+                SessionEvent::Checkpoint { .. } => "checkpoint",
             })
             .collect()
     }

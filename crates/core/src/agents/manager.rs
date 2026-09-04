@@ -20,7 +20,7 @@ use tokio::sync::RwLock;
 use super::{AgentSession, StartArgs};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
-use crate::types::{MessageKind, PermissionReply, Provider, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
+use crate::types::{MessageKind, PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
 
 pub const DEFAULT_TITLE: &str = "새 세션";
 
@@ -66,6 +66,7 @@ impl SessionManager {
                 effort: config.effort,
                 permission: config.permission,
                 total_cost_usd: 0.0,
+                archived: false,
                 created_at: now,
                 last_used_at: now,
             },
@@ -119,6 +120,10 @@ impl SessionManager {
 
     pub async fn reply_permission(&self, session_id: &str, reply: PermissionReply) -> Result<()> {
         self.get(session_id).await?.reply_permission(reply).await
+    }
+
+    pub async fn answer_question(&self, session_id: &str, request_id: String, answers: Vec<QuestionAnswer>) -> Result<()> {
+        self.get(session_id).await?.answer_question(request_id, answers).await
     }
 
     pub async fn update_config(&self, session_id: &str, patch: SessionConfigPatch) -> Result<()> {

@@ -12,6 +12,7 @@ const record: SessionRecord = {
   effort: "high",
   permission: "auto_edit",
   total_cost_usd: 0,
+  archived: false,
   created_at: "2026-09-04T00:00:00Z",
   last_used_at: "2026-09-04T00:00:00Z",
 };

@@ -1,6 +1,6 @@
 use tauri::ipc::Channel;
 use tauri::State;
-use vibecode_core::types::{MessageRecord, PermissionReply, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
+use vibecode_core::types::{MessageRecord, PermissionReply, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
 
 use crate::state::{err, AppState};
 
@@ -57,4 +57,32 @@ pub async fn session_messages(state: State<'_, AppState>, session_id: String) ->
 pub async fn session_delete(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let _ = state.ctx.sessions.close(&session_id).await;
     state.ctx.db.delete_session(&session_id).map_err(err)
+}
+
+#[tauri::command]
+pub async fn session_answer_question(state: State<'_, AppState>, session_id: String, request_id: String, answers: Vec<QuestionAnswer>) -> Result<(), String> {
+    state.ctx.sessions.answer_question(&session_id, request_id, answers).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn session_rename(state: State<'_, AppState>, session_id: String, title: String) -> Result<(), String> {
+    state.ctx.db.rename_session(&session_id, title.trim()).map_err(err)
+}
+
+#[tauri::command]
+pub async fn session_set_archived(state: State<'_, AppState>, session_id: String, archived: bool) -> Result<(), String> {
+    state.ctx.db.set_session_archived(&session_id, archived).map_err(err)
+}
+
+/// Render the transcript as Markdown (implemented in core by the sessions fork).
+#[tauri::command]
+pub async fn session_export_markdown(state: State<'_, AppState>, session_id: String) -> Result<String, String> {
+    vibecode_core::agents::export::session_markdown(&state.ctx, &session_id).await.map_err(err)
+}
+
+/// Write the Markdown export to `path` (host path chosen with the save dialog).
+#[tauri::command]
+pub async fn session_export_to_file(state: State<'_, AppState>, session_id: String, path: String) -> Result<(), String> {
+    let md = vibecode_core::agents::export::session_markdown(&state.ctx, &session_id).await.map_err(err)?;
+    std::fs::write(&path, md).map_err(err)
 }

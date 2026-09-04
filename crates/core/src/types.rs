@@ -133,6 +133,59 @@ pub struct AppSettings {
     pub git_user_email: Option<String>,
     pub theme: String,
     pub onboarding_done: bool,
+    /// Snapshot the working tree before every agent turn (see `checkpoint`).
+    #[serde(default = "default_true")]
+    pub checkpoints_enabled: bool,
+    /// Windows notifications when a turn ends / approval is needed while the window is unfocused.
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
+    /// Check GitHub Releases for app updates on startup.
+    #[serde(default = "default_true")]
+    pub auto_update_check: bool,
+    /// MCP servers shared by both agents.
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum McpTransport {
+    Stdio,
+    Http,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+pub struct EnvVar {
+    pub key: String,
+    pub value: String,
+}
+
+/// One MCP server definition, written into Claude's `--mcp-config` and Codex's config.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+pub struct McpServerConfig {
+    pub id: String,
+    /// Server name as the agents see it (tool prefix `mcp__<name>__`).
+    pub name: String,
+    pub transport: McpTransport,
+    #[ts(optional = nullable)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<EnvVar>,
+    #[ts(optional = nullable)]
+    pub url: Option<String>,
+    pub enabled: bool,
+    /// Which agents receive this server (empty = both).
+    #[serde(default)]
+    pub providers: Vec<Provider>,
 }
 
 impl Default for AppSettings {
@@ -152,6 +205,10 @@ impl Default for AppSettings {
             git_user_email: None,
             theme: "system".into(),
             onboarding_done: false,
+            checkpoints_enabled: true,
+            notifications_enabled: true,
+            auto_update_check: true,
+            mcp_servers: vec![],
         }
     }
 }
@@ -365,6 +422,9 @@ pub struct SessionRecord {
     pub effort: Option<Effort>,
     pub permission: PermissionPreset,
     pub total_cost_usd: f64,
+    /// Hidden from the default session list.
+    #[serde(default)]
+    pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub last_used_at: DateTime<Utc>,
 }
@@ -437,6 +497,35 @@ pub struct Usage {
     pub cache_write_tokens: i64,
 }
 
+/// A question the agent asks the user (Claude AskUserQuestion / Codex requestUserInput).
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct QuestionOption {
+    pub label: String,
+    #[ts(optional = nullable)]
+    pub description: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct AgentQuestion {
+    pub id: String,
+    /// Short chip/tag, e.g. "Auth method".
+    pub header: String,
+    pub question: String,
+    pub options: Vec<QuestionOption>,
+    pub multi_select: bool,
+    pub allow_free_text: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct QuestionAnswer {
+    pub question_id: String,
+    /// Selected option labels and/or free text.
+    pub answers: Vec<String>,
+}
+
 /// Provider-agnostic event stream consumed by the chat UI.
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -471,6 +560,16 @@ pub enum SessionEvent {
         detail: Value,
     },
     PermissionResolved { request_id: String, decision: PermissionDecision },
+    /// The agent asks the user structured questions; answer with `session_answer_question`.
+    Question { request_id: String, questions: Vec<AgentQuestion> },
+    QuestionResolved { request_id: String },
+    /// An event produced by a subagent spawned by the tool call `parent_tool_use_id` (nested depth allowed).
+    Subagent {
+        parent_tool_use_id: String,
+        event: Box<SessionEvent>,
+    },
+    /// A working-tree checkpoint was saved right before this turn.
+    Checkpoint { checkpoint_id: String, label: String },
     Plan { steps: Vec<PlanStep> },
     Status { message: String },
     TurnEnd {
@@ -486,6 +585,91 @@ pub enum SessionEvent {
         #[ts(optional = nullable)]
         code: Option<i32>,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoints (working-tree snapshots per agent turn)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct CheckpointRecord {
+    pub id: String,
+    pub project_id: String,
+    #[ts(optional = nullable)]
+    pub session_id: Option<String>,
+    /// Monotonic per project.
+    pub seq: i64,
+    /// Commit hash of the snapshot tree.
+    pub git_ref: String,
+    pub label: String,
+    pub created_at: DateTime<Utc>,
+}
+
+// ---------------------------------------------------------------------------
+// Project files (explorer / viewer)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct FsEntry {
+    pub name: String,
+    /// Path relative to the project root, forward slashes.
+    pub rel_path: String,
+    pub is_dir: bool,
+    pub size: i64,
+    #[ts(optional = nullable)]
+    pub modified: Option<DateTime<Utc>>,
+    /// Matches a common ignore pattern (node_modules, target, .git, ...); shown dimmed and not expanded by default.
+    pub ignored: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct FsFile {
+    pub rel_path: String,
+    pub content: String,
+    pub size: i64,
+    pub truncated: bool,
+    pub binary: bool,
+}
+
+// ---------------------------------------------------------------------------
+// AI stack recommendation (wizard)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct StackRecommendRequest {
+    pub description: String,
+    pub target_os: TargetOs,
+    pub project_type: ProjectType,
+    pub provider: Provider,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct StackRecommendation {
+    pub stack_id: String,
+    /// 0-100
+    pub score: i64,
+    pub reason: String,
+}
+
+// ---------------------------------------------------------------------------
+// SSH key (for GitHub pushes from the active backend)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct SshKeyInfo {
+    pub present: bool,
+    #[ts(optional = nullable)]
+    pub public_key: Option<String>,
+    #[ts(optional = nullable)]
+    pub path: Option<String>,
+    /// github.com already in known_hosts.
+    pub github_known_host: bool,
 }
 
 // ---------------------------------------------------------------------------

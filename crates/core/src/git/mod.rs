@@ -1,6 +1,8 @@
 //! git operations executed through the backend (`git` on the host or in WSL).
 //! `repo` is always a host (Windows) path.
 
+pub mod ssh;
+
 pub mod parse;
 
 use std::path::Path;
