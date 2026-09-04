@@ -145,7 +145,7 @@ export function DefaultsForm({ draft, onChange, showTheme = true }: Props) {
         <Label>프로젝트 기본 폴더 (Windows 경로)</Label>
         <div className="flex gap-2">
           <Input
-            placeholder="예: C:\\code"
+            placeholder="예: C:\code"
             value={draft.projects_root ?? ""}
             onChange={(e) => onChange({ projects_root: e.target.value.trim() || null })}
           />

@@ -1,7 +1,7 @@
 # Capture the main window of a running process to a PNG (used for GUI verification).
 # Usage (from WSL): powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\code\vibecode\scripts\screenshot.ps1 -ProcessName vibecode -Out C:\code\vibecode\.tmp\shot.png
 param(
-  [string]$ProcessName = "vibecode",
+  [string]$ProcessName = "Vibecoder",
   [string]$Out = "shot.png",
   [int]$WaitSeconds = 0
 )

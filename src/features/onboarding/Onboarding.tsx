@@ -11,7 +11,7 @@ import { EFFORT_OPTIONS, PERMISSION_OPTIONS, providerLabel } from "@/features/se
 import { AuthCards } from "./AuthCards";
 import { BackendPicker } from "./BackendPicker";
 import { DefaultsForm } from "./DefaultsForm";
-import { recommendBackend, toolFound } from "./recommend";
+import { pickBestDistro, recommendCandidate, toolFound, type Candidate } from "./recommend";
 import { ToolsTable } from "./ToolsTable";
 
 const STEPS = [
@@ -33,13 +33,17 @@ export function Onboarding() {
   const [draft, setDraft] = useState<AppSettings>(settings);
   const patch = useCallback((p: Partial<AppSettings>) => setDraft((d) => ({ ...d, ...p })), []);
 
-  // --- step 1: backend detection previews ---
+  // --- step 1: backend detection previews (every WSL distro + native, then Claude login) ---
   const [distros, setDistros] = useState<string[]>([]);
   const [nativeTools, setNativeTools] = useState<ToolStatus[] | null>(null);
-  const [wslTools, setWslTools] = useState<ToolStatus[] | null>(null);
+  const [wslToolsByDistro, setWslToolsByDistro] = useState<Record<string, ToolStatus[] | null>>({});
+  const [loginByKey, setLoginByKey] = useState<Record<string, boolean | null>>({});
   const [detecting, setDetecting] = useState(false);
   const [recommended, setRecommended] = useState<BackendKind | null>(null);
+  const [recommendedDistro, setRecommendedDistro] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
+
+  const keyOf = (b: BackendConfig) => (b.kind === "wsl" ? `wsl:${b.wsl_distro ?? ""}` : "native");
 
   useEffect(() => {
     let cancelled = false;
@@ -49,18 +53,41 @@ export function Onboarding() {
       if (cancelled) return;
       setDistros(list);
       const nativeP = ipc.tools.detect({ kind: "native", wsl_distro: null }).catch(() => [] as ToolStatus[]);
-      const wslP = list.length > 0 ? ipc.tools.detect({ kind: "wsl", wsl_distro: list[0] }).catch(() => null) : Promise.resolve(null);
-      const [n, w] = await Promise.all([nativeP, wslP]);
+      const wslPs = list.map((d) =>
+        ipc.tools
+          .detect({ kind: "wsl", wsl_distro: d })
+          .then((t) => [d, t] as const)
+          .catch(() => [d, null] as const),
+      );
+      const [n, ...ws] = await Promise.all([nativeP, ...wslPs]);
       if (cancelled) return;
+      const byDistro: Record<string, ToolStatus[] | null> = {};
+      for (const [d, t] of ws) byDistro[d] = t;
       setNativeTools(n);
-      setWslTools(w);
-      const rec = recommendBackend(n, w);
-      setRecommended(rec);
+      setWslToolsByDistro(byDistro);
+      const bestDistro = pickBestDistro(byDistro, list);
+      setRecommendedDistro(bestDistro);
+
+      // Login check only where claude is installed.
+      const nativeB: BackendConfig = { kind: "native", wsl_distro: null };
+      const wslB: BackendConfig | null = bestDistro ? { kind: "wsl", wsl_distro: bestDistro } : null;
+      const check = async (b: BackendConfig, tools: ToolStatus[] | null) =>
+        toolFound(tools, "claude") ? ipc.tools.authStatus("claude", b).then((a) => a.logged_in).catch(() => null) : null;
+      const [nLogin, wLogin] = await Promise.all([check(nativeB, n), wslB ? check(wslB, byDistro[bestDistro!] ?? null) : null]);
+      if (cancelled) return;
+      const logins: Record<string, boolean | null> = { native: nLogin };
+      if (wslB) logins[keyOf(wslB)] = wLogin;
+      setLoginByKey(logins);
+
+      const nativeC: Candidate = { backend: nativeB, tools: n, claudeLoggedIn: nLogin };
+      const wslC: Candidate | null = wslB ? { backend: wslB, tools: byDistro[bestDistro!] ?? null, claudeLoggedIn: wLogin } : null;
+      setRecommended(recommendCandidate(nativeC, wslC));
       setDetecting(false);
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Apply the recommendation once, unless the user already chose.
@@ -68,10 +95,19 @@ export function Onboarding() {
     if (recommended && !userPicked) {
       setDraft((d) => ({
         ...d,
-        backend: { kind: recommended, wsl_distro: recommended === "wsl" ? (d.backend.wsl_distro ?? distros[0] ?? null) : null },
+        backend: { kind: recommended, wsl_distro: recommended === "wsl" ? (recommendedDistro ?? distros[0] ?? null) : null },
       }));
     }
-  }, [recommended, userPicked, distros]);
+  }, [recommended, recommendedDistro, userPicked, distros]);
+
+  // Distro shown on the WSL card: the chosen one, else the recommended/first one (so marks render before selection).
+  const selectedDistro =
+    draft.backend.kind === "wsl"
+      ? (draft.backend.wsl_distro ?? recommendedDistro ?? distros[0] ?? null)
+      : (recommendedDistro ?? distros[0] ?? null);
+  const wslTools = selectedDistro ? (wslToolsByDistro[selectedDistro] ?? null) : null;
+  const nativeLoggedIn = loginByKey["native"] ?? null;
+  const wslLoggedIn = selectedDistro ? (loginByKey[`wsl:${selectedDistro}`] ?? null) : null;
 
   const setBackend = (b: BackendConfig) => {
     setUserPicked(true);
@@ -145,13 +181,13 @@ export function Onboarding() {
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-background text-foreground">
+    <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
       <div className="flex min-h-0 flex-1">
         {/* step list */}
         <aside className="w-64 shrink-0 border-r bg-sidebar p-5">
           <div className="mb-6 flex items-center gap-2">
             <Rocket className="size-5 text-primary" />
-            <span className="text-lg font-semibold">vibecode 시작하기</span>
+            <span className="text-lg font-semibold">Vibecoder 시작하기</span>
           </div>
           <ol className="space-y-1">
             {STEPS.map((s, i) => {
@@ -205,7 +241,7 @@ export function Onboarding() {
               {step === 0 && (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    vibecode는 Windows 앱이지만, Claude Code · Codex · git은 Windows에 직접 설치된 것이나 WSL 안의 것을 쓸 수
+                    Vibecoder는 Windows 앱이지만, Claude Code · Codex · git은 Windows에 직접 설치된 것이나 WSL 안의 것을 쓸 수
                     있습니다. 감지 결과를 보고 선택하세요. 나중에 설정에서 바꿀 수 있습니다.
                   </p>
                   <BackendPicker
@@ -214,15 +250,27 @@ export function Onboarding() {
                     distros={distros}
                     nativeTools={nativeTools}
                     wslTools={wslTools}
+                    wslToolsByDistro={wslToolsByDistro}
+                    nativeLoggedIn={nativeLoggedIn}
+                    wslLoggedIn={wslLoggedIn}
                     recommended={recommended}
+                    recommendedDistro={recommendedDistro}
                     loading={detecting}
                   />
                   {recommended === "wsl" && !detecting && (
                     <Alert>
-                      <AlertTitle>WSL을 추천합니다</AlertTitle>
+                      <AlertTitle>WSL{recommendedDistro ? ` (${recommendedDistro})` : ""}을 추천합니다</AlertTitle>
                       <AlertDescription>
-                        Claude Code가 WSL 안에만 설치되어 있습니다. 로그인 상태도 그대로 사용됩니다.
+                        {wslLoggedIn
+                          ? "이 배포판의 Claude Code에 이미 로그인되어 있어 그대로 사용할 수 있습니다."
+                          : "Claude Code가 이 배포판에 설치되어 있습니다. 다음 단계에서 로그인 상태를 확인합니다."}
                       </AlertDescription>
+                    </Alert>
+                  )}
+                  {recommended === "native" && !detecting && nativeLoggedIn === false && (
+                    <Alert>
+                      <AlertTitle>Windows의 Claude Code는 로그인이 필요합니다</AlertTitle>
+                      <AlertDescription>로그인 단계에서 터미널로 로그인하거나, 이미 로그인된 WSL 배포판이 있다면 WSL을 선택하세요.</AlertDescription>
                     </Alert>
                   )}
                 </>

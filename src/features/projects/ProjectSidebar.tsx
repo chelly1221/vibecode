@@ -149,7 +149,7 @@ export function ProjectSidebar() {
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-sm font-semibold tracking-tight">vibecode</span>
+        <span className="text-sm font-semibold tracking-tight">프로젝트</span>
         <div className="flex items-center gap-0.5">
           <IconButton label="새 프로젝트" onClick={() => setWizardOpen(true)}>
             <Plus />

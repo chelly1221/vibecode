@@ -1,6 +1,6 @@
-# vibecode
+# Vibecoder
 
-GUI vibe-coding workbench for Windows: Claude Code + OpenAI Codex + git in one Tauri app.
+Vibecoder: GUI vibe-coding workbench for Windows with Claude Code, OpenAI Codex and git in one Tauri app. (repo/crate name: vibecode)
 
 - Create projects (target OS / type → recommended stacks → scaffold → git init → GitHub repo)
 - Run agent sessions with model, effort and permission presets chosen in the UI

@@ -1,4 +1,4 @@
-# vibecode
+# vibecode (product name: Vibecoder)
 
 Windows desktop (Tauri v2 + Rust + React/TS) GUI for vibe coding with Claude Code, OpenAI Codex and git.
 Personal-use app (not distributed). Full design: `docs/PLAN.md`.
@@ -35,3 +35,12 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
   `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/agentMessage/delta`, ...).
 - On this dev machine: Claude Code is installed and logged in inside WSL (`Ubuntu`), not on Windows.
   The app therefore defaults to the WSL backend when `claude` is missing natively but present in WSL.
+
+## Troubleshooting (dev machine)
+- If every `*.exe` call from WSL fails with `cannot execute binary file: Exec format error`, the `WSLInterop`
+  binfmt entry was lost. Fix without sudo/restart:
+  `/init /mnt/c/WINDOWS/system32/wsl.exe wsl.exe -d Ubuntu -u root -e sh -c "echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register"`
+  (`/init <exe> <argv0> <args…>` runs a Windows binary directly; repeat the exe name as argv0).
+- GUI verification: start the app with `WSLENV=WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS/w WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 cargo.exe tauri dev`,
+  then drive it with `node.exe scripts/cdp.mjs eval|shot|run` (Chrome DevTools Protocol; screenshots land in `.tmp/`).
+- WSL distros on this machine: `Ubuntu-24.04` (default, no claude) and `Ubuntu` (claude + codex installed, logged in). Pick `Ubuntu`.

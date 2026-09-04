@@ -277,7 +277,7 @@ function AboutTab() {
   return (
     <div className="space-y-4 text-sm">
       <div>
-        <div className="text-lg font-semibold">vibecode</div>
+        <div className="text-lg font-semibold">Vibecoder</div>
         <div className="text-muted-foreground">버전 {version || "..."} · Tauri v2 + Rust + React</div>
       </div>
       <p className="text-muted-foreground">

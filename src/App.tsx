@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { TitleBar } from "@/components/TitleBar";
 import { useAppStore } from "@/stores/app";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { ProjectSidebar } from "@/features/projects/ProjectSidebar";
@@ -16,6 +17,10 @@ export default function App() {
   const loadProjects = useAppStore((s) => s.loadProjects);
   const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const projects = useAppStore((s) => s.projects);
+  const sessionsByProject = useAppStore((s) => s.sessionsByProject);
 
   useEffect(() => {
     loadSettings().catch((e) => console.error("settings", e));
@@ -29,39 +34,47 @@ export default function App() {
     root.classList.toggle("dark", theme === "dark" || (theme === "system" && prefersDark));
   }, [settings?.theme]);
 
-  if (settings && !settings.onboarding_done) {
-    return (
-      <TooltipProvider>
-        <Onboarding />
-        <Toaster />
-      </TooltipProvider>
-    );
-  }
+  const project = projects.find((p) => p.id === activeProjectId);
+  const session = activeProjectId ? sessionsByProject[activeProjectId]?.find((s) => s.id === activeSessionId) : undefined;
+  const subtitle = project ? (session ? `${project.name} · ${session.title}` : project.name) : null;
+
+  const onboarding = settings && !settings.onboarding_done;
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-        <ProjectSidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <main className="flex min-w-0 flex-1 flex-col">
-              <ChatView />
-            </main>
-            {gitPanelOpen && (
-              <aside className="w-80 shrink-0 border-l">
-                <GitPanel />
-              </aside>
-            )}
-          </div>
-          {terminalOpen && (
-            <div className="h-64 shrink-0 border-t">
-              <TerminalPanel />
+      <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+        <TitleBar subtitle={onboarding ? null : subtitle} />
+        {onboarding ? (
+          <Onboarding />
+        ) : (
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <ProjectSidebar />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex min-h-0 flex-1">
+                <main className="flex min-w-0 flex-1 flex-col">
+                  <ChatView />
+                </main>
+                {gitPanelOpen && (
+                  <aside className="w-80 shrink-0 border-l">
+                    <GitPanel />
+                  </aside>
+                )}
+              </div>
+              {terminalOpen && (
+                <div className="h-64 shrink-0 border-t">
+                  <TerminalPanel />
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
-      <ProjectWizard />
-      <SettingsDialog />
+      {!onboarding && (
+        <>
+          <ProjectWizard />
+          <SettingsDialog />
+        </>
+      )}
       <Toaster />
     </TooltipProvider>
   );

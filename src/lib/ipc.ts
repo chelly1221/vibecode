@@ -44,7 +44,9 @@ export const ipc = {
   tools: {
     /** Detect tools on the active backend, or on `backend` for onboarding previews. */
     detect: (backend?: BackendConfig) => invoke<ToolStatus[]>("tools_detect", { backend: backend ?? null }),
-    authStatus: (provider: Provider) => invoke<AuthStatus>("tools_auth_status", { provider }),
+    /** Auth status on the active backend, or on `backend` for onboarding previews. */
+    authStatus: (provider: Provider, backend?: BackendConfig) =>
+      invoke<AuthStatus>("tools_auth_status", { provider, backend: backend ?? null }),
     listWslDistros: () => invoke<string[]>("tools_list_wsl_distros"),
     listModels: (provider: Provider) => invoke<ModelInfo[]>("models_list", { provider }),
   },

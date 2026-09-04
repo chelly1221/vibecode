@@ -13,10 +13,13 @@ pub async fn tools_detect(state: State<'_, AppState>, backend: Option<BackendCon
     Ok(vibecode_core::tools::detect_all(b).await)
 }
 
+/// Auth status on the active backend, or on `backend` if given (onboarding preview; no bin override).
 #[tauri::command]
-pub async fn tools_auth_status(state: State<'_, AppState>, provider: Provider) -> Result<AuthStatus, String> {
-    let b = state.ctx.backend().await;
-    let bin = state.ctx.bin_override(provider).await;
+pub async fn tools_auth_status(state: State<'_, AppState>, provider: Provider, backend: Option<BackendConfig>) -> Result<AuthStatus, String> {
+    let (b, bin) = match backend {
+        Some(cfg) => (vibecode_core::backend::create_backend(&cfg).await.map_err(err)?, None),
+        None => (state.ctx.backend().await, state.ctx.bin_override(provider).await),
+    };
     vibecode_core::tools::auth_status(b, provider, bin.as_deref()).await.map_err(err)
 }
 

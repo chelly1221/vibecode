@@ -26,3 +26,31 @@ describe("sortTools", () => {
     expect(names).toEqual(["claude", "git", "cargo", "zsh"]);
   });
 });
+
+import { pickBestDistro, recommendCandidate, scoreCandidate } from "./recommend";
+
+const tool = (name: string, found: boolean) => ({ name, found, path: null, version: null, install_hint: null });
+
+describe("auth-aware recommendation", () => {
+  it("prefers the distro that has claude", () => {
+    const byDistro = {
+      "Ubuntu-24.04": [tool("claude", false), tool("git", true)],
+      Ubuntu: [tool("claude", true), tool("codex", true), tool("git", true)],
+    };
+    expect(pickBestDistro(byDistro, ["Ubuntu-24.04", "Ubuntu"])).toBe("Ubuntu");
+  });
+
+  it("recommends the backend where claude is logged in", () => {
+    const native = { backend: { kind: "native" as const, wsl_distro: null }, tools: [tool("claude", true)], claudeLoggedIn: false };
+    const wsl = { backend: { kind: "wsl" as const, wsl_distro: "Ubuntu" }, tools: [tool("claude", true), tool("git", true)], claudeLoggedIn: true };
+    expect(recommendCandidate(native, wsl)).toBe("wsl");
+    expect(scoreCandidate(wsl)).toBeGreaterThan(scoreCandidate(native));
+  });
+
+  it("falls back to native on ties", () => {
+    const native = { backend: { kind: "native" as const, wsl_distro: null }, tools: [tool("claude", true), tool("git", true)], claudeLoggedIn: true };
+    const wsl = { backend: { kind: "wsl" as const, wsl_distro: "Ubuntu" }, tools: [tool("claude", true), tool("git", true)], claudeLoggedIn: true };
+    expect(recommendCandidate(native, wsl)).toBe("native");
+    expect(recommendCandidate(null, null)).toBe("native");
+  });
+});

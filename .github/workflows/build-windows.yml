@@ -53,5 +53,5 @@ jobs:
           name: vibecode-windows
           path: |
             target/release/bundle/nsis/*.exe
-            target/release/vibecode.exe
+            target/release/Vibecoder.exe
           if-no-files-found: error
