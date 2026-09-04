@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["3chan <chelly1221.com@gmail.com>"]
+license = "MIT"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

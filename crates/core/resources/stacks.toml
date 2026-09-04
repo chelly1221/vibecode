@@ -1,0 +1,12 @@
+# Stack catalog. Filled in by projects/catalog implementation. See docs/PLAN.md 4.1.
+[[stack]]
+id = "placeholder"
+name = "Placeholder"
+summary = "replace me"
+targets = []
+types = []
+languages = []
+prerequisites = []
+pros = []
+cons = []
+recommended = false
