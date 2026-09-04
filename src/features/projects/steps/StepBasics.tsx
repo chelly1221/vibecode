@@ -8,14 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWizardStore } from "@/stores/wizard";
-import { joinPath, pathWarnings, validateProjectName } from "../validation";
+import { joinPath, pathWarnings, toDirName, validateDirName, validateProjectName } from "../validation";
 
 export function StepBasics() {
   const form = useWizardStore((s) => s.form);
   const setField = useWizardStore((s) => s.setField);
   const nameError = form.name ? validateProjectName(form.name) : null;
-  const fullPath = form.parentDir ? joinPath(form.parentDir, form.name || "…") : "";
-  const warnings = form.parentDir && form.name ? pathWarnings(joinPath(form.parentDir, form.name)) : [];
+  const dirError = form.dirName || form.name ? validateDirName(form.dirName) : null;
+  const fullPath = form.parentDir ? joinPath(form.parentDir, form.dirName || "…") : "";
+  const warnings = form.parentDir ? pathWarnings(form.parentDir) : [];
+  const onNameChange = (v: string) => {
+    setField("name", v);
+    if (!form.dirNameEdited) setField("dirName", toDirName(v));
+  };
 
   const pickParent = async () => {
     try {
@@ -56,11 +61,29 @@ export function StepBasics() {
           id="wz-name"
           autoFocus
           value={form.name}
-          onChange={(e) => setField("name", e.target.value)}
-          placeholder="my-app"
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="예: 재고 관리 앱 또는 my-app"
           aria-invalid={!!nameError}
         />
         {nameError && <p className="text-xs text-destructive">{nameError}</p>}
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="wz-dir">폴더 · 패키지 이름 (영문)</Label>
+        <Input
+          id="wz-dir"
+          value={form.dirName}
+          onChange={(e) => {
+            setField("dirName", e.target.value);
+            setField("dirNameEdited", true);
+          }}
+          placeholder="예: inventory-app"
+          aria-invalid={!!dirError}
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">
+          npm · cargo · flutter 같은 도구는 영문 식별자를 요구하므로 실제 폴더와 패키지 이름은 이 값을 씁니다. 한글 이름은 앱 안에서 표시용으로만 쓰입니다.
+        </p>
+        {dirError && <p className="text-xs text-destructive">{dirError}</p>}
       </div>
       <div className="grid gap-1.5">
         <Label htmlFor="wz-parent">상위 폴더</Label>

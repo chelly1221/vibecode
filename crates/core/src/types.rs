@@ -352,8 +352,14 @@ pub struct AgentDocsStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct CreateProjectRequest {
+    /// Display name shown in the app (any characters incl. Korean).
     pub name: String,
-    /// Parent directory (Windows path). Project dir = parent/name.
+    /// Folder / package identifier used by scaffolding tools (ASCII: a-z 0-9 - _ .). None = derived from `name`
+    /// when that is already a valid identifier.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub dir_name: Option<String>,
+    /// Parent directory (Windows path). Project dir = parent/dir_name.
     pub parent_dir: String,
     pub target_os: TargetOs,
     pub project_type: ProjectType,

@@ -153,9 +153,23 @@ pub async fn create_project(ctx: Arc<AppContext>, req: CreateProjectRequest, eve
 
 async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Reporter) -> Result<ProjectRecord> {
     rep.step("검증");
-    let name = req.name.trim();
+    let display_name = req.name.trim();
+    if !valid_display_name(display_name) {
+        return Err(CoreError::msg("프로젝트 이름이 비어 있거나 \\ / : * ? \" < > | 문자를 포함합니다"));
+    }
+    // Tools (npm, cargo, flutter, ...) need an ASCII identifier: the folder/package name.
+    let dir_owned = match req.dir_name.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => d.to_string(),
+        None => derive_dir_name(display_name).ok_or_else(|| {
+            CoreError::msg("한글 등 비ASCII 이름에는 도구용 영문 폴더 이름(dir_name)이 필요합니다 (예: inventory-app)")
+        })?,
+    };
+    let name = dir_owned.as_str();
     if !valid_name(name) {
-        return Err(CoreError::msg("프로젝트 이름은 영문, 숫자, '-', '_', '.'만 사용할 수 있습니다"));
+        return Err(CoreError::msg("폴더 이름은 영문 소문자, 숫자, '-', '_', '.'만 사용할 수 있습니다"));
+    }
+    if display_name != name {
+        rep.log(format!("표시 이름 \"{display_name}\" → 폴더/패키지 이름 \"{name}\""));
     }
     let parent = PathBuf::from(req.parent_dir.trim());
     if !parent.is_dir() {
@@ -189,7 +203,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
         }
         None => {
             std::fs::create_dir_all(&target)?;
-            let readme = format!("# {name}\n\n{}\n", req.description.trim());
+            let readme = format!("# {display_name}\n\n{}\n", req.description.trim());
             write_if_missing(&target.join("README.md"), &readme)?;
             rep.log("스캐폴딩 명령이 없는 스택입니다. 빈 디렉터리와 README.md를 만들었습니다.");
         }
@@ -198,7 +212,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     let now = Utc::now();
     let mut project = ProjectRecord {
         id: uuid::Uuid::new_v4().to_string(),
-        name: name.to_string(),
+        name: display_name.to_string(),
         path: target_str.clone(),
         target_os: Some(req.target_os),
         project_type: Some(req.project_type),
@@ -384,9 +398,48 @@ pub async fn open_existing(ctx: Arc<AppContext>, path: &str) -> Result<ProjectRe
     Ok(project)
 }
 
+/// Display names may contain any characters except path separators / Windows-reserved ones.
+pub fn valid_display_name(name: &str) -> bool {
+    let t = name.trim();
+    !t.is_empty()
+        && t.len() <= 200
+        && !t.chars().any(|c| matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
+        && !t.ends_with('.')
+}
+
+/// Derive an ASCII folder/package identifier from a display name: lowercase, spaces → '-',
+/// drop everything else. Returns None when nothing usable remains (e.g. a purely Korean name).
+pub fn derive_dir_name(name: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for c in name.trim().chars() {
+        let c = c.to_ascii_lowercase();
+        if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+            out.push(c);
+            last_dash = false;
+        } else if (c == '-' || c.is_whitespace()) && !out.is_empty() && !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let out = out.trim_matches(|c| c == '-' || c == '.').to_string();
+    if out.is_empty() || !valid_name(&out) { None } else { Some(out) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_and_dir_names() {
+        assert!(valid_display_name("재고 관리 앱"));
+        assert!(!valid_display_name("a/b"));
+        assert!(!valid_display_name(""));
+        assert_eq!(derive_dir_name("My App 2"), Some("my-app-2".into()));
+        assert_eq!(derive_dir_name("재고관리"), None);
+        assert_eq!(derive_dir_name("재고 app"), Some("app".into()));
+        assert_eq!(derive_dir_name("  --x--  "), Some("x".into()));
+    }
 
     #[test]
     fn name_validation() {

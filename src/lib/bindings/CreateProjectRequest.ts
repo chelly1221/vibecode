@@ -5,8 +5,17 @@ import type { ProjectType } from "./ProjectType";
 import type { Provider } from "./Provider";
 import type { TargetOs } from "./TargetOs";
 
-export type CreateProjectRequest = { name: string, 
+export type CreateProjectRequest = { 
 /**
- * Parent directory (Windows path). Project dir = parent/name.
+ * Display name shown in the app (any characters incl. Korean).
+ */
+name: string, 
+/**
+ * Folder / package identifier used by scaffolding tools (ASCII: a-z 0-9 - _ .). None = derived from `name`
+ * when that is already a valid identifier.
+ */
+dir_name?: string | null, 
+/**
+ * Parent directory (Windows path). Project dir = parent/dir_name.
  */
 parent_dir: string, target_os: TargetOs, project_type: ProjectType, stack_id?: string | null, description: string, git_init: boolean, create_github_repo: boolean, github_private: boolean, generate_agent_docs: boolean, default_provider?: Provider | null, default_model?: string | null, default_effort?: Effort | null, default_permission?: PermissionPreset | null, };

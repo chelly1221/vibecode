@@ -4,14 +4,9 @@ import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ExternalLink,
   FolderOpen,
-  GitBranch,
   MoreHorizontal,
   Plus,
-  Settings,
-  SquareTerminal,
   Trash2,
-  FolderTree,
-  MonitorPlay,
 } from "lucide-react";
 import { toast } from "sonner";
 import { isOverElement, PROJECT_DROP_ZONE } from "@/lib/dropZones";
@@ -120,15 +115,6 @@ export function ProjectSidebar() {
   const selectProject = useAppStore((s) => s.selectProject);
   const loadProjects = useAppStore((s) => s.loadProjects);
   const setWizardOpen = useAppStore((s) => s.setWizardOpen);
-  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
-  const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
-  const setGitPanelOpen = useAppStore((s) => s.setGitPanelOpen);
-  const terminalOpen = useAppStore((s) => s.terminalOpen);
-  const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
-  const previewOpen = useAppStore((s) => s.previewOpen);
-  const setPreviewOpen = useAppStore((s) => s.setPreviewOpen);
-  const setFilesPanelOpen = useAppStore((s) => s.setFilesPanelOpen);
-  const setTerminalOpen = useAppStore((s) => s.setTerminalOpen);
   const [pendingRemove, setPendingRemove] = useState<ProjectRecord | null>(null);
 
   const openExisting = async () => {
@@ -226,25 +212,6 @@ export function ProjectSidebar() {
         )}
       </ScrollArea>
 
-      <div className="flex items-center justify-between border-t px-2 py-1.5">
-        <div className="flex items-center gap-0.5">
-          <IconButton label="git 패널" pressed={gitPanelOpen} onClick={() => setGitPanelOpen(!gitPanelOpen)}>
-            <GitBranch />
-          </IconButton>
-          <IconButton label="터미널" pressed={terminalOpen} onClick={() => setTerminalOpen(!terminalOpen)}>
-            <SquareTerminal />
-          </IconButton>
-          <IconButton label="파일" pressed={filesPanelOpen} onClick={() => setFilesPanelOpen(!filesPanelOpen)}>
-            <FolderTree />
-          </IconButton>
-          <IconButton label="UI 미리보기" pressed={previewOpen} onClick={() => setPreviewOpen(!previewOpen)}>
-            <MonitorPlay />
-          </IconButton>
-        </div>
-        <IconButton label="설정" onClick={() => setSettingsOpen(true)}>
-          <Settings />
-        </IconButton>
-      </div>
 
       <ConfirmDialog
         open={pendingRemove !== null}

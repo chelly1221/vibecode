@@ -41,3 +41,17 @@ describe("pathWarnings", () => {
     expect(pathWarnings("C:\\code\\app")).toEqual([]);
   });
 });
+
+import { toDirName, validateDirName } from "./validation";
+
+describe("dir names for tools", () => {
+  it("derives ASCII slugs and rejects invalid ones", () => {
+    expect(toDirName("My App 2")).toBe("my-app-2");
+    expect(toDirName("재고관리")).toBe("");
+    expect(toDirName("재고 app")).toBe("app");
+    expect(validateDirName("inventory-app")).toBeNull();
+    expect(validateDirName("재고")).not.toBeNull();
+    expect(validateDirName("-bad")).not.toBeNull();
+    expect(validateProjectName("재고 관리 앱")).toBeNull();
+  });
+});

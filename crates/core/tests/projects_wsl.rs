@@ -27,6 +27,7 @@ async fn create_and_open_project_via_wsl() {
     let parent = tempfile::tempdir().unwrap();
     let req = CreateProjectRequest {
         name: "demo-proj".into(),
+        dir_name: None,
         parent_dir: parent.path().to_string_lossy().to_string(),
         target_os: TargetOs::Windows,
         project_type: ProjectType::Script,
@@ -73,6 +74,7 @@ async fn create_and_open_project_via_wsl() {
     let (tx2, _rx2) = tokio::sync::mpsc::unbounded_channel::<ScaffoldEvent>();
     let dup = CreateProjectRequest {
         name: "demo-proj".into(),
+        dir_name: None,
         parent_dir: parent.path().to_string_lossy().to_string(),
         target_os: TargetOs::Windows,
         project_type: ProjectType::Script,

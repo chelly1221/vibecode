@@ -24,10 +24,6 @@ export default function App() {
   const previewOpen = useAppStore((s) => s.previewOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
-  const activeProjectId = useAppStore((s) => s.activeProjectId);
-  const activeSessionId = useAppStore((s) => s.activeSessionId);
-  const projects = useAppStore((s) => s.projects);
-  const sessionsByProject = useAppStore((s) => s.sessionsByProject);
 
   useEffect(() => {
     loadSettings().catch((e) => console.error("settings", e));
@@ -41,9 +37,28 @@ export default function App() {
     root.classList.toggle("dark", theme === "dark" || (theme === "system" && prefersDark));
   }, [settings?.theme]);
 
-  const project = projects.find((p) => p.id === activeProjectId);
-  const session = activeProjectId ? sessionsByProject[activeProjectId]?.find((s) => s.id === activeSessionId) : undefined;
-  const subtitle = project ? (session ? `${project.name} · ${session.title}` : project.name) : null;
+  // Panel shortcuts: Ctrl+1 git, Ctrl+2 terminal, Ctrl+3 files, Ctrl+4 preview, Ctrl+, settings.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const st = useAppStore.getState();
+      const map: Record<string, () => void> = {
+        "1": () => st.setGitPanelOpen(!st.gitPanelOpen),
+        "2": () => st.setTerminalOpen(!st.terminalOpen),
+        "3": () => st.setFilesPanelOpen(!st.filesPanelOpen),
+        "4": () => st.setPreviewOpen(!st.previewOpen),
+        ",": () => st.setSettingsOpen(true),
+      };
+      const fn = map[e.key];
+      if (fn) {
+        e.preventDefault();
+        fn();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
 
   const onboarding = settings && !settings.onboarding_done;
 
@@ -65,7 +80,7 @@ export default function App() {
   return (
     <TooltipProvider>
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-        <TitleBar subtitle={onboarding ? null : subtitle} />
+        <TitleBar showPanels={!onboarding} />
         {onboarding ? (
           <Onboarding />
         ) : (

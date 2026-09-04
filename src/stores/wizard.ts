@@ -16,13 +16,16 @@ import {
 } from "@/lib/ipc";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
-import { validateProjectName } from "@/features/projects/validation";
+import { validateDirName, validateProjectName } from "@/features/projects/validation";
 
 export const WIZARD_STEPS = ["이름 · 경로", "대상 OS", "유형", "스택", "옵션", "생성"] as const;
 export type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
 
 export interface WizardForm {
   name: string;
+  /** ASCII folder/package name used by tools; auto-derived from `name` until edited. */
+  dirName: string;
+  dirNameEdited: boolean;
   parentDir: string;
   description: string;
   targetOs: TargetOs | null;
@@ -77,6 +80,8 @@ interface WizardState {
 function initialForm(settings: AppSettings | null): WizardForm {
   return {
     name: "",
+    dirName: "",
+    dirNameEdited: false,
     parentDir: settings?.projects_root ?? "",
     description: "",
     targetOs: null,
@@ -132,6 +137,8 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       case 0: {
         const nameErr = validateProjectName(form.name);
         if (nameErr) return nameErr;
+        const dirErr = validateDirName(form.dirName);
+        if (dirErr) return dirErr;
         if (!form.parentDir.trim()) return "프로젝트를 만들 상위 폴더를 선택하세요.";
         return null;
       }
@@ -189,6 +196,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     const f = get().form;
     return {
       name: f.name.trim(),
+      dir_name: f.dirName.trim() || null,
       parent_dir: f.parentDir.trim(),
       target_os: f.targetOs ?? "windows",
       project_type: f.projectType ?? "desktop_app",
