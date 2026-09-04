@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { PermissionDecision } from "@/lib/bindings/PermissionDecision";
 import { useAppStore } from "@/stores/app";
-import { useSessionsStore } from "@/stores/sessions";
+import { LONG_SESSION_QUESTIONS, questionCount, useSessionsStore } from "@/stores/sessions";
+import { LongSessionBanner } from "./LongSessionBanner";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { MessageList } from "./MessageList";
@@ -27,6 +28,7 @@ export function ChatView() {
   const send = useSessionsStore((s) => s.send);
   const interrupt = useSessionsStore((s) => s.interrupt);
   const permissionReply = useSessionsStore((s) => s.permissionReply);
+  const dismissLongWarning = useSessionsStore((s) => s.dismissLongWarning);
 
   const record = useMemo(() => {
     if (!activeSessionId) return null;
@@ -120,6 +122,8 @@ export function ChatView() {
   }
 
   const pending = session.pendingPermissions[0];
+  const questions = questionCount(session.items);
+  const showLongWarning = questions >= LONG_SESSION_QUESTIONS && !session.longWarningDismissed;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -150,6 +154,9 @@ export function ChatView() {
             이어서 진행
           </Button>
         </div>
+      )}
+      {showLongWarning && (
+        <LongSessionBanner count={questions} onNewSession={() => setNewSessionOpen(true)} onDismiss={() => dismissLongWarning(session.record.id)} />
       )}
       <Composer running={session.running} starting={session.starting} live={session.live} onSend={onSend} onInterrupt={onInterrupt} />
       <NewSessionDialog />

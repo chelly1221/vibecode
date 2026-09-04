@@ -194,3 +194,17 @@ describe("fromMessages", () => {
     expect(items[2]).toMatchObject({ type: "system", variant: "info", text: "m" });
   });
 });
+
+import { LONG_SESSION_QUESTIONS, questionCount } from "@/stores/sessions";
+
+describe("long session hint", () => {
+  it("counts only user messages", () => {
+    const items = [
+      { type: "user", id: "1", text: "a" },
+      { type: "assistant", id: "2", text: "b", streaming: false },
+      { type: "user", id: "3", text: "c" },
+    ] as never[];
+    expect(questionCount(items)).toBe(2);
+    expect(LONG_SESSION_QUESTIONS).toBeGreaterThan(0);
+  });
+});

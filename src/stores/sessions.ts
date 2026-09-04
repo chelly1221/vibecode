@@ -76,6 +76,8 @@ export interface SessionState {
   lastError: string | null;
   statusMessage: string | null;
   historyLoaded: boolean;
+  /** "그만 보기" was pressed on the long-session banner for this session. */
+  longWarningDismissed: boolean;
   /** Counter for live item ids (`e<n>`); persisted items use `h<seq>`. */
   nextId: number;
 }
@@ -108,6 +110,7 @@ export function createSessionState(record: SessionRecord): SessionState {
     lastError: null,
     statusMessage: null,
     historyLoaded: false,
+    longWarningDismissed: false,
     nextId: 1,
   };
 }
@@ -408,6 +411,7 @@ interface SessionsStore {
   updateConfig: (id: string, patch: SessionConfigPatch) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   remove: (id: string) => void;
+  dismissLongWarning: (id: string) => void;
 }
 
 function configForResume(st: SessionState): SessionConfig {
@@ -576,6 +580,8 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     });
   },
 
+  dismissLongWarning: (id) =>
+    set((st) => (st.sessions[id] ? { sessions: { ...st.sessions, [id]: { ...st.sessions[id], longWarningDismissed: true } } } : {})),
   remove: (id) => {
     set((s) => {
       const sessions = { ...s.sessions };
@@ -584,3 +590,13 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     });
   },
 }));
+
+/** Show the "start a new conversation" hint once a session holds this many user questions. */
+export const LONG_SESSION_QUESTIONS = 20;
+
+/** Number of user messages (questions) in a session. */
+export function questionCount(items: ChatItem[]): number {
+  let n = 0;
+  for (const it of items) if (it.type === "user") n++;
+  return n;
+}
