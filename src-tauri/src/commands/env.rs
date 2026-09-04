@@ -21,6 +21,12 @@ pub async fn env_reboot() -> Result<(), String> {
     managed::reboot().await.map_err(err)
 }
 
+/// Reboot into advanced startup so the user can open the UEFI firmware settings (BIOS virtualization).
+#[tauri::command]
+pub async fn env_reboot_to_firmware() -> Result<(), String> {
+    managed::reboot_to_firmware().await.map_err(err)
+}
+
 /// Streams ProvisionEvents; resolves when provisioning finished (Ok) or failed (Err).
 #[tauri::command]
 pub async fn env_provision(on_event: Channel<ProvisionEvent>) -> Result<(), String> {

@@ -20,7 +20,6 @@ import {
   PERMISSION_LABEL,
   PERMISSION_PRESETS,
   PROVIDER_LABEL,
-  formatCost,
   formatTokens,
 } from "./labels";
 
@@ -132,11 +131,11 @@ export function SessionHeader({ session }: { session: SessionState }) {
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="hidden rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground lg:inline">
-              {formatCost(session.cost)} · ↑{formatTokens(session.usage.input_tokens)} ↓{formatTokens(session.usage.output_tokens)}
+              ↑{formatTokens(session.usage.input_tokens)} ↓{formatTokens(session.usage.output_tokens)}
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            비용 {formatCost(session.cost)} · 입력 {session.usage.input_tokens.toLocaleString()} · 출력 {session.usage.output_tokens.toLocaleString()} · 캐시 읽기{" "}
+            토큰 · 입력 {session.usage.input_tokens.toLocaleString()} · 출력 {session.usage.output_tokens.toLocaleString()} · 캐시 읽기{" "}
             {session.usage.cache_read_tokens.toLocaleString()}
           </TooltipContent>
         </Tooltip>

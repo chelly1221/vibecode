@@ -138,7 +138,6 @@ fn config(permission: PermissionPreset) -> SessionConfig {
         model: Some("gpt-test".into()),
         effort: Some(Effort::High),
         permission,
-        max_budget_usd: None,
         append_system_prompt: Some("Be terse.".into()),
         resume_ref: None,
         fork: false,

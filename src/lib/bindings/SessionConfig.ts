@@ -3,7 +3,7 @@ import type { Effort } from "./Effort";
 import type { PermissionPreset } from "./PermissionPreset";
 import type { Provider } from "./Provider";
 
-export type SessionConfig = { project_id: string, provider: Provider, model?: string | null, effort?: Effort | null, permission: PermissionPreset, max_budget_usd?: number | null, append_system_prompt?: string | null, 
+export type SessionConfig = { project_id: string, provider: Provider, model?: string | null, effort?: Effort | null, permission: PermissionPreset, append_system_prompt?: string | null, 
 /**
  * Resume an existing provider session/thread (Claude session_id or Codex thread id).
  */

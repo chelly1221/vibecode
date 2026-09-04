@@ -10,7 +10,8 @@ async fn git_for(state: &State<'_, AppState>, project_id: &str) -> Result<(Git, 
     let project = state.ctx.db.get_project(project_id).map_err(err)?;
     let backend = state.ctx.backend().await;
     let bin = state.ctx.git_bin().await;
-    Ok((Git::new(backend, bin), PathBuf::from(project.path)))
+    let settings = state.ctx.settings().await;
+    Ok((Git::new(backend, bin).with_identity(settings.git_user_name, settings.git_user_email), PathBuf::from(project.path)))
 }
 
 #[tauri::command]

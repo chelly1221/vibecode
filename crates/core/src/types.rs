@@ -126,6 +126,11 @@ pub struct AppSettings {
     pub codex_bin: Option<String>,
     #[ts(optional = nullable)]
     pub git_bin: Option<String>,
+    /// Commit author used for git commits made by the app (passed as `-c user.name/user.email`).
+    #[ts(optional = nullable)]
+    pub git_user_name: Option<String>,
+    #[ts(optional = nullable)]
+    pub git_user_email: Option<String>,
     pub theme: String,
     pub onboarding_done: bool,
 }
@@ -143,6 +148,8 @@ impl Default for AppSettings {
             claude_bin: None,
             codex_bin: None,
             git_bin: None,
+            git_user_name: None,
+            git_user_email: None,
             theme: "system".into(),
             onboarding_done: false,
         }
@@ -322,8 +329,6 @@ pub struct SessionConfig {
     #[ts(optional = nullable)]
     pub effort: Option<Effort>,
     pub permission: PermissionPreset,
-    #[ts(optional = nullable)]
-    pub max_budget_usd: Option<f64>,
     #[ts(optional = nullable)]
     pub append_system_prompt: Option<String>,
     /// Resume an existing provider session/thread (Claude session_id or Codex thread id).
@@ -578,6 +583,15 @@ pub struct WslStatus {
     pub managed_ready: bool,
     #[ts(optional = nullable)]
     pub detail: Option<String>,
+    /// Windows build number (WSL2 needs 19041+). 0 = unknown.
+    pub windows_build: i64,
+    /// CPU virtualization available to Windows: true when a hypervisor is already running or the
+    /// firmware reports it enabled; false when the BIOS/UEFI setting is off; None = unknown.
+    #[ts(optional = nullable)]
+    pub virtualization_enabled: Option<bool>,
+    pub hypervisor_present: bool,
+    #[ts(optional = nullable)]
+    pub cpu_vendor: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]

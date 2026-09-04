@@ -89,9 +89,6 @@ pub fn build_spec(plan: &SpawnPlan) -> CommandSpec {
                 .args(["--permission-prompt-tool", &crate::permission::PermissionBroker::tool_ref()]);
         }
     }
-    if let Some(budget) = cfg.max_budget_usd.filter(|b| *b > 0.0) {
-        spec = spec.args(["--max-budget-usd", &format!("{budget}")]);
-    }
     if let Some(sp) = cfg.append_system_prompt.as_deref().filter(|s| !s.trim().is_empty()) {
         spec = spec.args(["--append-system-prompt", sp]);
     }
@@ -117,7 +114,6 @@ mod tests {
             model: Some("sonnet".into()),
             effort: Some(Effort::XHigh),
             permission: PermissionPreset::AskEverything,
-            max_budget_usd: Some(2.5),
             append_system_prompt: None,
             resume_ref: None,
             fork: false,
@@ -134,7 +130,6 @@ mod tests {
         assert!(a.contains("--effort xhigh"));
         assert!(a.contains("--permission-mode default"));
         assert!(a.contains("--permission-prompts host --permission-prompt-tool stdio"));
-        assert!(a.contains("--max-budget-usd 2.5"));
         assert!(!a.contains("--resume"));
         assert!(!a.contains("--bare"));
         assert!(spec.report_pid);

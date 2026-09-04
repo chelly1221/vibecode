@@ -20,6 +20,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         env::env_wsl_status,
         env::env_install_wsl,
         env::env_reboot,
+        env::env_reboot_to_firmware,
         env::env_provision,
         env::env_remove_managed,
         projects::projects_list,

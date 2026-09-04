@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,7 +34,6 @@ export function NewSessionDialog() {
   const [effort, setEffort] = useState<Effort | null>(null);
   const [permission, setPermission] = useState<PermissionPreset>("auto_edit");
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [budget, setBudget] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +47,6 @@ export function NewSessionDialog() {
     setPermission(project?.default_permission ?? settings?.default_permission ?? "auto_edit");
     setEffort(project?.default_effort ?? settings?.default_effort ?? null);
     setSystemPrompt("");
-    setBudget("");
     setAdvanced(false);
   }, [open, project, settings]);
 
@@ -66,18 +63,12 @@ export function NewSessionDialog() {
 
   const submit = async () => {
     if (!projectId) return;
-    const budgetNum = budget.trim() ? Number(budget) : null;
-    if (budgetNum !== null && (!Number.isFinite(budgetNum) || budgetNum <= 0)) {
-      toast.error("예산은 0보다 큰 숫자여야 합니다");
-      return;
-    }
     const config: SessionConfig = {
       project_id: projectId,
       provider,
       model,
       effort,
       permission,
-      max_budget_usd: budgetNum,
       append_system_prompt: systemPrompt.trim() || null,
       resume_ref: null,
       fork: false,
@@ -183,11 +174,6 @@ export function NewSessionDialog() {
               <div className="grid gap-1.5">
                 <Label htmlFor="ns-system">추가 시스템 프롬프트</Label>
                 <Textarea id="ns-system" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="이 세션에만 적용할 지시사항" className="min-h-20" />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="ns-budget">예산 한도 (USD)</Label>
-                <Input id="ns-budget" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="예: 5" />
-                <p className="text-xs text-muted-foreground">Claude 세션에만 적용됩니다.</p>
               </div>
             </CollapsibleContent>
           </Collapsible>

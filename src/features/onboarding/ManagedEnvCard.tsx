@@ -1,7 +1,7 @@
 // "Vibecoder 전용 환경": the app-owned WSL distribution. Handles the three states
 // (WSL missing → install + reboot, WSL present → provision, ready → marks) and streams provisioning progress.
 import { useCallback, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, Loader2, Package, RefreshCw, RotateCcw, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, Download, Loader2, Package, RefreshCw, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,42 @@ function fmtBytes(n: number) {
   if (n > 1e6) return `${(n / 1e6).toFixed(1)} MB`;
   if (n > 1e3) return `${(n / 1e3).toFixed(0)} KB`;
   return `${n} B`;
+}
+
+const MIN_BUILD = 19041;
+
+/** CPU virtualization is off in the firmware: the program cannot flip it, so guide the user. */
+function VirtualizationGuide({ vendor }: { vendor: string | null }) {
+  const intel = !vendor || /intel/i.test(vendor);
+  const setting = intel ? "Intel Virtualization Technology (VT-x / Intel VT)" : "SVM Mode (AMD-V)";
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-start gap-2 text-amber-600">
+        <Cpu className="mt-0.5 size-3.5 shrink-0" />
+        <span>
+          CPU 가상화가 BIOS/UEFI에서 꺼져 있습니다. 이 설정은 프로그램이 대신 켤 수 없어 직접 바꿔야 합니다.
+          {vendor ? ` (CPU: ${vendor})` : ""}
+        </span>
+      </div>
+      <ol className="list-decimal space-y-0.5 pl-5 text-muted-foreground">
+        <li>아래 "펌웨어 설정으로 재부팅"을 누르면 고급 시작 옵션으로 재부팅됩니다.</li>
+        <li>문제 해결 → 고급 옵션 → UEFI 펌웨어 설정 → 다시 시작.</li>
+        <li>
+          BIOS에서 <span className="font-medium text-foreground">{setting}</span>을 Enabled로 바꾸고 저장(F10)합니다. 보통 Advanced / CPU Configuration 메뉴에 있습니다.
+        </li>
+        <li>Windows로 돌아오면 Vibecoder를 다시 실행하세요. 나머지는 프로그램이 이어서 진행합니다.</li>
+      </ol>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          if (window.confirm("고급 시작 옵션으로 재부팅할까요? 저장하지 않은 작업이 있으면 먼저 저장하세요.")) ipc.env.rebootToFirmware().catch((err) => toast.error(String(err)));
+        }}
+      >
+        <RotateCcw className="size-4" /> 펌웨어 설정으로 재부팅
+      </Button>
+    </div>
+  );
 }
 
 export function ManagedEnvCard({ status, tools, claudeLoggedIn, selected, recommended, onChanged, onSelect, compact, allowRemove }: Props) {
@@ -102,6 +138,8 @@ export function ManagedEnvCard({ status, tools, claudeLoggedIn, selected, recomm
   }, [onChanged]);
 
   const state = status?.state ?? null;
+  const buildTooOld = !!status && status.windows_build > 0 && status.windows_build < MIN_BUILD;
+  const virtOff = !!status && status.virtualization_enabled === false && !status.hypervisor_present;
   const ready = !!status?.managed_ready;
   const present = !!status?.managed_present;
   const running = prov.phase === "running";
@@ -153,11 +191,20 @@ export function ManagedEnvCard({ status, tools, claudeLoggedIn, selected, recomm
         <div className="space-y-2 text-xs">
           <div className="flex items-start gap-2 text-amber-600">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-            <span>WSL(Windows Subsystem for Linux)이 설치되어 있지 않습니다. 설치에는 관리자 권한과 재부팅 1회가 필요합니다.</span>
+            <span>
+              WSL(Windows Subsystem for Linux)이 설치되어 있지 않습니다. "WSL 설치"를 누르면 프로그램이 관리자 권한으로 필요한 Windows 기능(가상 머신 플랫폼, WSL)을 켜고 WSL을 설치합니다. 끝나면 재부팅 1회가 필요합니다.
+            </span>
           </div>
-          {installed !== "done" && (
+          {buildTooOld && (
+            <div className="flex items-start gap-2 text-destructive">
+              <XCircle className="mt-0.5 size-3.5 shrink-0" />
+              <span>Windows 빌드 {status?.windows_build}는 WSL2를 지원하지 않습니다. Windows 10 2004(빌드 19041) 이상으로 업데이트한 뒤 다시 실행하세요.</span>
+            </div>
+          )}
+          {virtOff && <VirtualizationGuide vendor={status?.cpu_vendor ?? null} />}
+          {installed !== "done" && !buildTooOld && (
             <Button size="sm" onClick={(e) => { e.stopPropagation(); installWsl(); }} disabled={installing}>
-              {installing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />} WSL 설치 (관리자 권한)
+              {installing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />} WSL 설치 (Windows 기능 자동 활성화 · 관리자 권한)
             </Button>
           )}
           {installMsg && (
@@ -181,6 +228,7 @@ export function ManagedEnvCard({ status, tools, claudeLoggedIn, selected, recomm
 
       {state === "installed" && (
         <div className="space-y-2 text-xs">
+          {virtOff && <VirtualizationGuide vendor={status?.cpu_vendor ?? null} />}
           <div className="flex items-center gap-2 text-muted-foreground">
             <CheckCircle2 className="size-3.5 text-emerald-600" /> WSL {status?.version ?? ""} 사용 가능
             {present && <span>· 배포판 {MANAGED_DISTRO} {ready ? "준비됨" : "있음 (도구 미설치)"}</span>}

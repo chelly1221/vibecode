@@ -83,7 +83,19 @@ pub async fn wsl_status() -> WslStatus {
         managed_present: false,
         managed_ready: false,
         detail: None,
+        windows_build: 0,
+        virtualization_enabled: None,
+        hypervisor_present: false,
+        cpu_vendor: None,
     };
+    let prereqs = host_prereqs().await;
+    status.windows_build = prereqs.build;
+    status.virtualization_enabled = prereqs.virtualization_enabled;
+    status.hypervisor_present = prereqs.hypervisor_present;
+    status.cpu_vendor = prereqs.cpu_vendor;
+    if let Some(fake) = fake_state() {
+        return apply_fake_state(status, &fake);
+    }
     if wsl_exe().is_none() {
         status.detail = Some("wsl.exe를 찾을 수 없습니다. Windows 10 2004 이상 또는 Windows 11이 필요합니다.".into());
         return status;
@@ -119,12 +131,96 @@ pub async fn wsl_status() -> WslStatus {
     status
 }
 
-/// Launch `wsl --install --no-distribution` elevated (UAC prompt). Returns the exit code.
-/// A reboot is normally required afterwards.
-pub async fn install_wsl() -> Result<i32> {
-    let script = "$p = Start-Process -FilePath wsl.exe -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait -PassThru; exit $p.ExitCode";
+#[derive(Debug, Default, Clone)]
+pub struct HostPrereqs {
+    pub build: i64,
+    pub virtualization_enabled: Option<bool>,
+    pub hypervisor_present: bool,
+    pub cpu_vendor: Option<String>,
+}
+
+/// Windows build + CPU virtualization state (no elevation needed). A running hypervisor
+/// (Hyper-V / Virtual Machine Platform) hides the firmware flag, so it counts as enabled.
+pub async fn host_prereqs() -> HostPrereqs {
+    let script = "$cs=Get-CimInstance Win32_ComputerSystem; $p=Get-CimInstance Win32_Processor | Select-Object -First 1; [pscustomobject]@{build=[Environment]::OSVersion.Version.Build; hv=[bool]$cs.HypervisorPresent; vfw=$p.VirtualizationFirmwareEnabled; vendor=$p.Manufacturer} | ConvertTo-Json -Compress";
     let mut cmd = Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]);
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let Ok(child) = spawn_tracked(&mut cmd) else { return HostPrereqs::default() };
+    let Ok(Ok(out)) = tokio::time::timeout(std::time::Duration::from_secs(25), child.wait_with_output()).await else {
+        return HostPrereqs::default();
+    };
+    parse_prereqs(&String::from_utf8_lossy(&out.stdout))
+}
+
+pub fn parse_prereqs(json: &str) -> HostPrereqs {
+    let v: serde_json::Value = match serde_json::from_str(json.trim()) {
+        Ok(v) => v,
+        Err(_) => return HostPrereqs::default(),
+    };
+    let hv = v["hv"].as_bool().unwrap_or(false);
+    let vfw = v["vfw"].as_bool();
+    HostPrereqs {
+        build: v["build"].as_i64().unwrap_or(0),
+        virtualization_enabled: if hv { Some(true) } else { vfw },
+        hypervisor_present: hv,
+        cpu_vendor: v["vendor"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+    }
+}
+
+/// Debug builds only: `VIBECODER_FAKE_WSL_STATE=not_found|not_installed|not_installed_novt` previews the UI.
+fn fake_state() -> Option<String> {
+    if cfg!(debug_assertions) { std::env::var("VIBECODER_FAKE_WSL_STATE").ok().filter(|v| !v.is_empty()) } else { None }
+}
+
+fn apply_fake_state(mut status: WslStatus, fake: &str) -> WslStatus {
+    match fake {
+        "not_found" => status.state = WslState::NotFound,
+        "not_installed_novt" => {
+            status.state = WslState::NotInstalled;
+            status.virtualization_enabled = Some(false);
+            status.hypervisor_present = false;
+            status.detail = Some("(미리보기) WSL이 설치되어 있지 않습니다".into());
+        }
+        _ => {
+            status.state = WslState::NotInstalled;
+            status.detail = Some("(미리보기) WSL이 설치되어 있지 않습니다".into());
+        }
+    }
+    status
+}
+
+/// PowerShell script run elevated: enable the Windows features WSL2 needs, then `wsl --install`.
+pub fn install_wsl_script() -> &'static str {
+    r#"$ErrorActionPreference = 'Continue'
+Write-Output '[1/3] Windows 기능 활성화: Virtual Machine Platform'
+Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -All -NoRestart | Out-Null
+Write-Output '[2/3] Windows 기능 활성화: Windows Subsystem for Linux'
+Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -All -NoRestart | Out-Null
+Write-Output '[3/3] wsl --install --no-distribution'
+& wsl.exe --install --no-distribution
+$code = $LASTEXITCODE
+Write-Output "완료 (wsl exit code: $code). 이 창은 잠시 후 닫힙니다. 재부팅 후 Vibecoder를 다시 실행하세요."
+Start-Sleep -Seconds 4
+exit $code
+"#
+}
+
+/// Elevated (UAC) install of WSL: enables the required Windows features itself, then runs
+/// `wsl --install --no-distribution`. Returns the exit code; a reboot is required afterwards.
+/// BIOS-level virtualization cannot be changed here — see `WslStatus::virtualization_enabled`.
+pub async fn install_wsl() -> Result<i32> {
+    let script_path = std::env::temp_dir().join("vibecoder-install-wsl.ps1");
+    // UTF-8 with BOM so PowerShell 5.1 reads the Korean strings correctly.
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(install_wsl_script().as_bytes());
+    tokio::fs::write(&script_path, bytes).await?;
+    let launcher = format!(
+        "$p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','{}' -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
+        script_path.to_string_lossy().replace('\'', "''")
+    );
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &launcher]);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = spawn_tracked(&mut cmd)?;
     let out = child.wait_with_output().await?;
@@ -136,6 +232,16 @@ pub async fn install_wsl() -> Result<i32> {
         }
     }
     Ok(code)
+}
+
+/// Reboot into the advanced startup menu (문제 해결 → 고급 옵션 → UEFI 펌웨어 설정) so the user can
+/// enable CPU virtualization in the BIOS. Called only after an explicit confirmation in the UI.
+pub async fn reboot_to_firmware() -> Result<()> {
+    let mut cmd = Command::new("shutdown.exe");
+    cmd.args(["/r", "/o", "/t", "5", "/c", "Vibecoder: UEFI 설정에서 CPU 가상화를 켜기 위해 고급 시작 옵션으로 재부팅합니다"]);
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    spawn_tracked(&mut cmd)?.wait().await?;
+    Ok(())
 }
 
 /// `shutdown /r /t 5` (called only from an explicit user confirmation).
@@ -264,6 +370,15 @@ appendWindowsPath=false
 generateResolvConf=true
 WSLCONF
 git config --system init.defaultBranch main
+# Browser shims: CLI login flows call xdg-open / wslview / $BROWSER → Windows default browser via interop.
+cat > /usr/local/bin/wsl-open <<'SH'
+#!/bin/sh
+exec /mnt/c/Windows/System32/rundll32.exe url.dll,FileProtocolHandler "$1"
+SH
+chmod +x /usr/local/bin/wsl-open
+ln -sf /usr/local/bin/wsl-open /usr/local/bin/xdg-open
+ln -sf /usr/local/bin/wsl-open /usr/local/bin/wslview
+echo 'export BROWSER=/usr/local/bin/wsl-open' > /etc/profile.d/vibecoder.sh
 echo "[3/6] Node.js LTS 설치 (NodeSource)"
 curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - >/dev/null
 apt-get install -y -q nodejs
@@ -428,10 +543,31 @@ mod tests {
     }
 
     #[test]
+    fn parses_prereqs_json() {
+        let p = parse_prereqs(r#"{"build":26100,"hv":true,"vfw":false,"vendor":"GenuineIntel"}"#);
+        assert_eq!(p.build, 26100);
+        assert_eq!(p.virtualization_enabled, Some(true));
+        assert!(p.hypervisor_present);
+        assert_eq!(p.cpu_vendor.as_deref(), Some("GenuineIntel"));
+        let q = parse_prereqs(r#"{"build":19045,"hv":false,"vfw":false,"vendor":"AuthenticAMD"}"#);
+        assert_eq!(q.virtualization_enabled, Some(false));
+        assert_eq!(parse_prereqs("garbage").build, 0);
+    }
+
+    #[test]
+    fn install_script_enables_features() {
+        let s = install_wsl_script();
+        assert!(s.contains("VirtualMachinePlatform"));
+        assert!(s.contains("Microsoft-Windows-Subsystem-Linux"));
+        assert!(s.contains("wsl.exe --install --no-distribution"));
+    }
+
+    #[test]
     fn script_mentions_user_and_marker() {
         let s = provision_script();
         assert!(s.contains("useradd -m -s /bin/bash -G sudo vibe"));
         assert!(s.contains("PROVISION_OK"));
         assert!(s.contains("systemd=false"));
+        assert!(s.contains("/usr/local/bin/xdg-open"));
     }
 }

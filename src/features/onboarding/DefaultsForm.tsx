@@ -141,6 +141,25 @@ export function DefaultsForm({ draft, onChange, showTheme = true }: Props) {
         </Select>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Git 커밋 작성자 이름 (권장)</Label>
+          <Input
+            placeholder="예: 3chan"
+            value={draft.git_user_name ?? ""}
+            onChange={(e) => onChange({ git_user_name: e.target.value || null })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Git 커밋 이메일 (권장)</Label>
+          <Input
+            placeholder="예: you@example.com"
+            value={draft.git_user_email ?? ""}
+            onChange={(e) => onChange({ git_user_email: e.target.value || null })}
+          />
+          <p className="text-xs text-muted-foreground">새 환경에서도 커밋이 되도록 앱이 커밋할 때 이 작성자를 사용합니다.</p>
+        </div>
+      </div>
       <div className="space-y-2 md:col-span-2">
         <Label>프로젝트 기본 폴더 (Windows 경로)</Label>
         <div className="flex gap-2">

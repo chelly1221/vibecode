@@ -82,7 +82,6 @@ async fn claude_session_roundtrip_via_wsl() {
         model: Some("sonnet".into()),
         effort: Some(Effort::Low),
         permission: PermissionPreset::AskEverything,
-        max_budget_usd: Some(1.0),
         append_system_prompt: None,
         resume_ref: None,
         fork: false,

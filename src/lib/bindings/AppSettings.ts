@@ -12,4 +12,8 @@ projects_root?: string | null,
 /**
  * Explicit binary overrides (host or backend path). Empty = auto-detect.
  */
-claude_bin?: string | null, codex_bin?: string | null, git_bin?: string | null, theme: string, onboarding_done: boolean, };
+claude_bin?: string | null, codex_bin?: string | null, git_bin?: string | null, 
+/**
+ * Commit author used for git commits made by the app (passed as `-c user.name/user.email`).
+ */
+git_user_name?: string | null, git_user_email?: string | null, theme: string, onboarding_done: boolean, };

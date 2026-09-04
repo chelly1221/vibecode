@@ -225,7 +225,8 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
         if write_if_missing(&target.join(".gitignore"), &gitignore_for(stack.as_ref()))? {
             rep.log(".gitignore 생성");
         }
-        let git = Git::new(backend.clone(), ctx.git_bin().await);
+        let settings = ctx.settings().await;
+        let git = Git::new(backend.clone(), ctx.git_bin().await).with_identity(settings.git_user_name.clone(), settings.git_user_email.clone());
         let already_repo = target.join(".git").exists();
         let init_ok = if already_repo {
             rep.log("스캐폴더가 이미 git 저장소를 만들었습니다.");

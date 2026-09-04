@@ -9,4 +9,13 @@ managed_distro: string, managed_present: boolean,
 /**
  * Present and the provisioning marker + tools check passed.
  */
-managed_ready: boolean, detail?: string | null, };
+managed_ready: boolean, detail?: string | null, 
+/**
+ * Windows build number (WSL2 needs 19041+). 0 = unknown.
+ */
+windows_build: number, 
+/**
+ * CPU virtualization available to Windows: true when a hypervisor is already running or the
+ * firmware reports it enabled; false when the BIOS/UEFI setting is off; None = unknown.
+ */
+virtualization_enabled?: boolean | null, hypervisor_present: boolean, cpu_vendor?: string | null, };

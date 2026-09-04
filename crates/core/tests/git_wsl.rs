@@ -62,7 +62,7 @@ async fn init_status_stage_commit_log_via_wsl() {
     assert!(staged.contains("hello.txt"));
 
     // Commit with an explicit identity so the test does not depend on global config.
-    let ident_git = Git { backend: backend.clone(), bin: None };
+    let ident_git = Git { backend: backend.clone(), bin: None, identity: None };
     let _ = ident_git;
     let cfg = |k: &str, v: &str| {
         let spec = vibecode_core::backend::CommandSpec::new("git").args(["config", k, v]).cwd(repo);

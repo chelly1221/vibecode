@@ -17,11 +17,23 @@ pub struct Git {
     pub backend: Arc<dyn ExecBackend>,
     /// Override for the git binary name/path (None = "git").
     pub bin: Option<String>,
+    /// Commit author (name, email) applied with `-c` so a fresh environment can commit without global config.
+    pub identity: Option<(String, String)>,
 }
 
 impl Git {
     pub fn new(backend: Arc<dyn ExecBackend>, bin: Option<String>) -> Self {
-        Git { backend, bin }
+        Git { backend, bin, identity: None }
+    }
+
+    pub fn with_identity(mut self, name: Option<String>, email: Option<String>) -> Self {
+        let name = name.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+        let email = email.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+        self.identity = match (name, email) {
+            (Some(n), Some(e)) => Some((n, e)),
+            _ => None,
+        };
+        self
     }
 
     fn bin(&self) -> &str {
@@ -154,7 +166,13 @@ impl Git {
     }
 
     pub async fn commit(&self, repo: &Path, message: &str) -> Result<String> {
-        self.run_combined(repo, &["commit", "-m", message]).await?;
+        let mut args: Vec<String> = Vec::new();
+        if let Some((name, email)) = &self.identity {
+            args.extend(["-c".into(), format!("user.name={name}"), "-c".into(), format!("user.email={email}")]);
+        }
+        args.extend(["commit".into(), "-m".into(), message.into()]);
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run_combined(repo, &refs).await?;
         let hash = self.run(repo, &["rev-parse", "--short", "HEAD"]).await?;
         Ok(hash.trim().to_string())
     }

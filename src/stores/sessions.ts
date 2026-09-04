@@ -417,7 +417,6 @@ function configForResume(st: SessionState): SessionConfig {
     model: st.model,
     effort: st.effort,
     permission: st.permission,
-    max_budget_usd: null,
     append_system_prompt: null,
     resume_ref: st.record.external_ref ?? null,
     fork: false,

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { ipc } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
@@ -40,6 +42,7 @@ export function XTermView({ tab, active }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon((_event, uri) => openUrl(uri).catch(() => window.open(uri, "_blank"))));
     term.open(host);
     termRef.current = term;
     fitRef.current = fit;

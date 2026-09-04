@@ -59,6 +59,8 @@ export const ipc = {
     /** Elevated `wsl --install --no-distribution`; resolves with the exit code (reboot needed afterwards). */
     installWsl: () => invoke<number>("env_install_wsl"),
     reboot: () => invoke<void>("env_reboot"),
+    /** Reboot into advanced startup (문제 해결 → 고급 옵션 → UEFI 펌웨어 설정). */
+    rebootToFirmware: () => invoke<void>("env_reboot_to_firmware"),
     /** Download rootfs, import the distro, install tools. Streams progress to `onEvent`. */
     provision: (onEvent: (e: ProvisionEvent) => void) => invoke<void>("env_provision", { onEvent: channel(onEvent) }),
     removeManaged: () => invoke<void>("env_remove_managed"),
