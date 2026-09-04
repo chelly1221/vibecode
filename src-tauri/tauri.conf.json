@@ -3,6 +3,7 @@
   "productName": "Vibecoder",
   "version": "0.1.0",
   "identifier": "kr.chelly.vibecode",
+  "mainBinaryName": "Vibecoder",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

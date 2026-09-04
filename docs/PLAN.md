@@ -1,4 +1,4 @@
-# vibecode 개발 계획서
+# Vibecoder(vibecode) 개발 계획서
 
 Windows 데스크톱(exe)용 GUI 바이브코딩 도구. Claude Code와 OpenAI Codex, git을 한 화면에서 다루고,
 프로젝트 생성부터 모델·effort·권한 설정까지 전부 GUI로 제어한다.
@@ -251,6 +251,12 @@ M2에서 가장 먼저 검증할 것: Windows에서 stream-json 양방향 스트
 
 ---
 
+### 진행 현황 (2026-09-04)
+- M0~M5 구현 완료. GUI 자동화(CDP)로 온보딩 → 프로젝트 열기 → git 패널 → Claude 세션 스트리밍 → 권한 승인 → 터미널 → 마법사 → 설정까지 실제 동작 확인.
+- Codex는 어댑터·프로토콜 테스트 완료, 실제 턴은 사용자가 WSL에서 `codex login` 후 확인 필요.
+- M6: NSIS 설치본 빌드와 GitHub Actions 워크플로 구성. 자동 업데이트는 개인용이라 제외.
+- 남은 개선 후보: 마법사의 "AI에게 물어보기" 스택 추천, 에이전트 턴별 체크포인트/롤백, AskUserQuestion 구조화 질문 UI, HTTPS+토큰 푸시용 credential helper.
+
 ## 8. 리스크와 대응
 
 1. **약관·브랜딩**: Anthropic은 사전 승인 없이 서드파티 제품이 claude.ai 로그인이나 구독 한도를 제공하는 것을 허용하지 않으며, 제품 내 표기는 "Claude Code"가 아닌 "Claude"/"Claude Agent"를 쓰라고 안내한다. 개인 사용은 문제없지만 **배포 시에는 API 키 방식을 기본으로 두고 표기를 "Claude"로 통일**한다. Codex도 유사한 조건이 있는지 배포 전 확인.
@@ -269,3 +275,4 @@ M2에서 가장 먼저 검증할 것: Windows에서 stream-json 양방향 스트
 2. 프론트엔드 프레임워크: 미정. 후보 비교는 대화 기록 참조. 결정 후 M0 시작.
 3. GitHub OAuth App: MVP는 PAT/SSH로 시작하고 디바이스 플로우는 후순위.
 4. **WSL 실행 백엔드는 v1에 포함한다.** (2026-09-04 변경) 이 PC는 Claude Code가 WSL(Ubuntu)에만 설치·로그인되어 있고 Windows 쪽에는 claude.exe와 Git for Windows가 없다. 앱은 Windows에서 실행되지만 에이전트·git·스캐폴딩은 `ExecBackend` 추상화(Native | Wsl)를 통해 실행하며, 경로는 `C:\...` ↔ `/mnt/c/...`로 변환한다. 인터럽트는 WSL에서 pid 마커를 이용해 `kill -INT`로 보낸다.
+5. **제품명은 Vibecoder, 아이콘은 핑크 `</>` 글리프(assets/icon.svg), 창은 커스텀 타이틀바(프레임 없는 창)로 한다.** (2026-09-04 사용자 요청) 저장소·크레이트 이름은 vibecode를 유지한다.
