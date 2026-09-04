@@ -4,14 +4,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ipc, type AppSettings, type BackendConfig, type ToolStatus } from "@/lib/ipc";
-import type { BackendKind } from "@/lib/bindings/BackendKind";
 import { useAppStore } from "@/stores/app";
 import { TerminalPanel } from "@/features/terminal/TerminalPanel";
 import { EFFORT_OPTIONS, PERMISSION_OPTIONS, providerLabel } from "@/features/settings/options";
 import { AuthCards } from "./AuthCards";
 import { BackendPicker } from "./BackendPicker";
 import { DefaultsForm } from "./DefaultsForm";
-import { pickBestDistro, recommendCandidate, toolFound, type Candidate } from "./recommend";
+import { pickBestDistro, recommendEnv, toolFound, type Candidate, type EnvChoice } from "./recommend";
+import { isManagedBackend, MANAGED_BACKEND, MANAGED_DISTRO, useManagedEnv } from "./useManagedEnv";
 import { ToolsTable } from "./ToolsTable";
 
 const STEPS = [
@@ -39,9 +39,10 @@ export function Onboarding() {
   const [wslToolsByDistro, setWslToolsByDistro] = useState<Record<string, ToolStatus[] | null>>({});
   const [loginByKey, setLoginByKey] = useState<Record<string, boolean | null>>({});
   const [detecting, setDetecting] = useState(false);
-  const [recommended, setRecommended] = useState<BackendKind | null>(null);
+  const [recommended, setRecommended] = useState<EnvChoice | null>(null);
   const [recommendedDistro, setRecommendedDistro] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
+  const managedEnv = useManagedEnv(false);
 
   const keyOf = (b: BackendConfig) => (b.kind === "wsl" ? `wsl:${b.wsl_distro ?? ""}` : "native");
 
@@ -49,8 +50,9 @@ export function Onboarding() {
     let cancelled = false;
     (async () => {
       setDetecting(true);
-      const list = await ipc.tools.listWslDistros().catch(() => [] as string[]);
+      const [allDistros, managedStatus] = await Promise.all([ipc.tools.listWslDistros().catch(() => [] as string[]), managedEnv.refresh()]);
       if (cancelled) return;
+      const list = allDistros.filter((d) => d !== MANAGED_DISTRO);
       setDistros(list);
       const nativeP = ipc.tools.detect({ kind: "native", wsl_distro: null }).catch(() => [] as ToolStatus[]);
       const wslPs = list.map((d) =>
@@ -81,7 +83,14 @@ export function Onboarding() {
 
       const nativeC: Candidate = { backend: nativeB, tools: n, claudeLoggedIn: nLogin };
       const wslC: Candidate | null = wslB ? { backend: wslB, tools: byDistro[bestDistro!] ?? null, claudeLoggedIn: wLogin } : null;
-      setRecommended(recommendCandidate(nativeC, wslC));
+      let managedC: Candidate | null = null;
+      if (managedStatus?.managed_ready) {
+        const mt = await ipc.tools.detect(MANAGED_BACKEND).catch(() => [] as ToolStatus[]);
+        const ml = toolFound(mt, "claude") ? await ipc.tools.authStatus("claude", MANAGED_BACKEND).then((a) => a.logged_in).catch(() => null) : null;
+        managedC = { backend: MANAGED_BACKEND, tools: mt, claudeLoggedIn: ml };
+      }
+      if (cancelled) return;
+      setRecommended(recommendEnv(nativeC, wslC, managedC));
       setDetecting(false);
     })();
     return () => {
@@ -95,14 +104,19 @@ export function Onboarding() {
     if (recommended && !userPicked) {
       setDraft((d) => ({
         ...d,
-        backend: { kind: recommended, wsl_distro: recommended === "wsl" ? (recommendedDistro ?? distros[0] ?? null) : null },
+        backend:
+          recommended === "managed"
+            ? MANAGED_BACKEND
+            : { kind: recommended, wsl_distro: recommended === "wsl" ? (recommendedDistro ?? distros[0] ?? null) : null },
       }));
     }
   }, [recommended, recommendedDistro, userPicked, distros]);
 
+  const managedSelected = isManagedBackend(draft.backend);
+
   // Distro shown on the WSL card: the chosen one, else the recommended/first one (so marks render before selection).
   const selectedDistro =
-    draft.backend.kind === "wsl"
+    draft.backend.kind === "wsl" && !managedSelected
       ? (draft.backend.wsl_distro ?? recommendedDistro ?? distros[0] ?? null)
       : (recommendedDistro ?? distros[0] ?? null);
   const wslTools = selectedDistro ? (wslToolsByDistro[selectedDistro] ?? null) : null;
@@ -138,6 +152,10 @@ export function Onboarding() {
 
   const next = async () => {
     if (step === 0) {
+      if (managedSelected && !managedEnv.status?.managed_ready) {
+        toast.error("전용 환경 준비를 먼저 완료하세요 (환경 준비 버튼)");
+        return;
+      }
       // Persist backend choice so auth status / model listing use it from now on.
       setSaving(true);
       try {
@@ -170,7 +188,7 @@ export function Onboarding() {
 
   const summary = useMemo(
     () => [
-      ["실행 환경", draft.backend.kind === "wsl" ? `WSL (${draft.backend.wsl_distro ?? "기본 배포판"})` : "Windows 네이티브"],
+      ["실행 환경", managedSelected ? "Vibecoder 전용 환경" : draft.backend.kind === "wsl" ? `WSL (${draft.backend.wsl_distro ?? "기본 배포판"})` : "Windows 네이티브"],
       ["기본 에이전트", providerLabel(draft.default_provider)],
       ["기본 모델", (draft.default_provider === "claude" ? draft.default_model_claude : draft.default_model_codex) ?? "CLI 기본값"],
       ["Effort", EFFORT_OPTIONS.find((o) => o.value === draft.default_effort)?.label ?? draft.default_effort],
@@ -253,10 +271,31 @@ export function Onboarding() {
                     wslToolsByDistro={wslToolsByDistro}
                     nativeLoggedIn={nativeLoggedIn}
                     wslLoggedIn={wslLoggedIn}
-                    recommended={recommended}
+                    recommended={recommended === "managed" ? null : recommended}
                     recommendedDistro={recommendedDistro}
                     loading={detecting}
+                    managed={{
+                      status: managedEnv.status,
+                      tools: managedEnv.tools,
+                      loggedIn: managedEnv.loggedIn,
+                      recommended: recommended === "managed",
+                      onChanged: async () => {
+                        await managedEnv.refresh();
+                      },
+                    }}
                   />
+                  {recommended === "managed" && !detecting && (
+                    <Alert>
+                      <AlertTitle>Vibecoder 전용 환경을 권장합니다</AlertTitle>
+                      <AlertDescription>
+                        {managedEnv.status?.managed_ready
+                          ? "전용 환경이 준비되어 있습니다. 다음 단계에서 로그인 상태를 확인합니다."
+                          : managedEnv.status?.state === "installed"
+                            ? "PC에 사용할 Claude Code가 없습니다. '환경 준비'를 누르면 앱이 리눅스 환경과 도구를 자동으로 설치합니다."
+                            : "먼저 WSL을 설치하고 재부팅한 뒤, 다시 실행해 '환경 준비'를 진행하세요."}
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   {recommended === "wsl" && !detecting && (
                     <Alert>
                       <AlertTitle>WSL{recommendedDistro ? ` (${recommendedDistro})` : ""}을 추천합니다</AlertTitle>

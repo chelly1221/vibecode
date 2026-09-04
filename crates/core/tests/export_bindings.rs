@@ -14,6 +14,6 @@ fn export_bindings() {
         TargetOs, ProjectType, StackInfo, ProjectRecord, CreateProjectRequest, ScaffoldEvent, SessionConfig,
         SessionConfigPatch, SessionRecord, MessageKind, MessageRecord, PermissionKind, PermissionDecision,
         PermissionReply, PlanStep, Usage, SessionEvent, GitFileStatus, GitStatus, GitBranch, GitCommit, GitHubUser,
-        GitHubRepo, PtySpec, PtyEvent,
+        GitHubRepo, PtySpec, PtyEvent, WslState, WslStatus, ProvisionEvent,
     );
 }

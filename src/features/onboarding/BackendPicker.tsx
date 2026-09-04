@@ -5,6 +5,9 @@ import type { BackendConfig } from "@/lib/bindings/BackendConfig";
 import type { BackendKind } from "@/lib/bindings/BackendKind";
 import type { ToolStatus } from "@/lib/bindings/ToolStatus";
 import { toolFound } from "./recommend";
+import { ManagedEnvCard } from "./ManagedEnvCard";
+import { isManagedBackend, MANAGED_BACKEND, MANAGED_DISTRO } from "./useManagedEnv";
+import type { WslStatus } from "@/lib/ipc";
 
 interface Props {
   value: BackendConfig;
@@ -19,6 +22,14 @@ interface Props {
   recommended: BackendKind | null;
   recommendedDistro?: string | null;
   loading: boolean;
+  /** App-owned environment card (first position). */
+  managed?: {
+    status: WslStatus | null;
+    tools: ToolStatus[] | null;
+    loggedIn: boolean | null;
+    recommended: boolean;
+    onChanged: () => void | Promise<void>;
+  };
 }
 
 function Marks({ tools, loggedIn }: { tools: ToolStatus[] | null; loggedIn?: boolean | null }) {
@@ -69,7 +80,10 @@ export function BackendPicker({
   recommended,
   recommendedDistro = null,
   loading,
+  managed,
 }: Props) {
+  const isManaged = isManagedBackend(value);
+  const userDistros = distros.filter((d) => d !== MANAGED_DISTRO);
   const card = (
     kind: BackendKind,
     icon: React.ReactNode,
@@ -79,11 +93,16 @@ export function BackendPicker({
     loggedIn: boolean | null,
     extra?: React.ReactNode,
   ) => {
-    const selected = value.kind === kind;
+    const selected = value.kind === kind && !(kind === "wsl" && isManaged);
     return (
       <button
         type="button"
-        onClick={() => onChange({ kind, wsl_distro: kind === "wsl" ? (value.wsl_distro ?? recommendedDistro ?? distros[0] ?? null) : null })}
+        onClick={() =>
+          onChange({
+            kind,
+            wsl_distro: kind === "wsl" ? ((isManaged ? null : value.wsl_distro) ?? recommendedDistro ?? userDistros[0] ?? null) : null,
+          })
+        }
         aria-pressed={selected}
         className={`flex flex-col gap-3 rounded-xl border p-4 text-left transition-colors ${
           selected ? "border-primary bg-primary/5 ring-2 ring-primary/30" : "hover:bg-accent/40"
@@ -92,7 +111,7 @@ export function BackendPicker({
         <div className="flex items-center gap-2">
           {icon}
           <span className="font-medium">{title}</span>
-          {recommended === kind && !loading && <Badge className="ml-auto">추천</Badge>}
+          {recommended === kind && !managed?.recommended && !loading && <Badge className="ml-auto">추천</Badge>}
         </div>
         <p className="text-sm text-muted-foreground">{desc}</p>
         <Marks tools={tools} loggedIn={loggedIn} />
@@ -102,7 +121,18 @@ export function BackendPicker({
   };
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className={managed ? "grid gap-4 md:grid-cols-3" : "grid gap-4 md:grid-cols-2"}>
+      {managed && (
+        <ManagedEnvCard
+          status={managed.status}
+          tools={managed.tools}
+          claudeLoggedIn={managed.loggedIn}
+          selected={isManaged}
+          recommended={managed.recommended && !loading}
+          onChanged={managed.onChanged}
+          onSelect={() => onChange(MANAGED_BACKEND)}
+        />
+      )}
       {card(
         "native",
         <Monitor className="size-5" />,
@@ -118,17 +148,17 @@ export function BackendPicker({
         "WSL 배포판 안의 도구를 사용합니다. 리눅스 툴체인과 샌드박스를 그대로 쓸 수 있습니다.",
         wslTools,
         wslLoggedIn,
-        distros.length > 0 ? (
+        userDistros.length > 0 ? (
           <div onClick={(e) => e.stopPropagation()} className="w-full">
             <Select
-              value={value.wsl_distro ?? recommendedDistro ?? distros[0]}
+              value={(isManaged ? null : value.wsl_distro) ?? recommendedDistro ?? userDistros[0]}
               onValueChange={(d) => onChange({ kind: "wsl", wsl_distro: d })}
             >
               <SelectTrigger className="w-full" size="sm">
                 <SelectValue placeholder="배포판 선택" />
               </SelectTrigger>
               <SelectContent>
-                {distros.map((d) => (
+                {userDistros.map((d) => (
                   <SelectItem key={d} value={d}>
                     {d}
                     <span className="text-muted-foreground">{distroSummary(wslToolsByDistro[d])}</span>
@@ -139,7 +169,7 @@ export function BackendPicker({
             </Select>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">설치된 WSL 배포판을 찾지 못했습니다.</p>
+          <p className="text-xs text-muted-foreground">PC에 설치된 WSL 배포판이 없습니다 (전용 환경 제외).</p>
         ),
       )}
     </div>

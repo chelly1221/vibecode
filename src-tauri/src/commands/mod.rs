@@ -1,5 +1,6 @@
 //! IPC surface. Command names are the contract with `src/lib/ipc.ts`; keep both in sync.
 
+pub mod env;
 pub mod git;
 pub mod github;
 pub mod projects;
@@ -16,6 +17,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         tools::tools_auth_status,
         tools::tools_list_wsl_distros,
         tools::models_list,
+        env::env_wsl_status,
+        env::env_install_wsl,
+        env::env_reboot,
+        env::env_provision,
+        env::env_remove_managed,
         projects::projects_list,
         projects::projects_get,
         projects::projects_create,

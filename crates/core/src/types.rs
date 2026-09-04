@@ -550,6 +550,52 @@ pub struct GitHubRepo {
 }
 
 // ---------------------------------------------------------------------------
+// Managed environment (app-owned WSL distribution)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum WslState {
+    /// wsl.exe is missing entirely (very old Windows).
+    NotFound,
+    /// wsl.exe exists but the WSL feature / kernel is not installed.
+    NotInstalled,
+    Installed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct WslStatus {
+    pub state: WslState,
+    #[ts(optional = nullable)]
+    pub version: Option<String>,
+    pub distros: Vec<String>,
+    /// Name of the app-owned distribution.
+    pub managed_distro: String,
+    pub managed_present: bool,
+    /// Present and the provisioning marker + tools check passed.
+    pub managed_ready: bool,
+    #[ts(optional = nullable)]
+    pub detail: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProvisionEvent {
+    Step { name: String },
+    Log { line: String, is_err: bool },
+    Progress {
+        bytes: i64,
+        #[ts(optional = nullable)]
+        total: Option<i64>,
+    },
+    Done,
+    Failed { message: String },
+}
+
+// ---------------------------------------------------------------------------
 // PTY (embedded terminal)
 // ---------------------------------------------------------------------------
 

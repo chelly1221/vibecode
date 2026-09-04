@@ -8,6 +8,7 @@
 //! - `permission` in-app MCP HTTP server used as Claude's `--permission-prompt-tool`
 //! - `git`        git operations through the backend
 //! - `github`     GitHub REST (create repo, whoami)
+//! - `managed`    app-owned WSL distribution: WSL detection/installation, rootfs provisioning
 //! - `projects`   stack catalog, scaffolding, CLAUDE.md/AGENTS.md generation
 //! - `db`         SQLite persistence (projects, sessions, messages, settings)
 //! - `secrets`    OS keyring wrapper
@@ -21,6 +22,7 @@ pub mod db;
 pub mod error;
 pub mod git;
 pub mod github;
+pub mod managed;
 pub mod permission;
 pub mod projects;
 pub mod pty;

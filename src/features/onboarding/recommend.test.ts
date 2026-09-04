@@ -27,7 +27,7 @@ describe("sortTools", () => {
   });
 });
 
-import { pickBestDistro, recommendCandidate, scoreCandidate } from "./recommend";
+import { pickBestDistro, recommendCandidate, recommendEnv, scoreCandidate } from "./recommend";
 
 const tool = (name: string, found: boolean) => ({ name, found, path: null, version: null, install_hint: null });
 
@@ -52,5 +52,22 @@ describe("auth-aware recommendation", () => {
     const wsl = { backend: { kind: "wsl" as const, wsl_distro: "Ubuntu" }, tools: [tool("claude", true), tool("git", true)], claudeLoggedIn: true };
     expect(recommendCandidate(native, wsl)).toBe("native");
     expect(recommendCandidate(null, null)).toBe("native");
+  });
+});
+
+describe("recommendEnv", () => {
+  const native = (claude: boolean, login: boolean | null) => ({ backend: { kind: "native" as const, wsl_distro: null }, tools: [tool("claude", claude), tool("git", false)], claudeLoggedIn: login });
+  const wsl = (claude: boolean, login: boolean | null) => ({ backend: { kind: "wsl" as const, wsl_distro: "Ubuntu" }, tools: [tool("claude", claude), tool("git", true)], claudeLoggedIn: login });
+  const managed = (ready: boolean) => (ready ? { backend: { kind: "wsl" as const, wsl_distro: "Vibecoder" }, tools: [tool("claude", true), tool("git", true)], claudeLoggedIn: false } : null);
+
+  it("picks managed when nothing on the PC has claude", () => {
+    expect(recommendEnv(native(false, null), wsl(false, null), null)).toBe("managed");
+    expect(recommendEnv(null, null, null)).toBe("managed");
+  });
+  it("keeps a logged-in existing install", () => {
+    expect(recommendEnv(native(true, false), wsl(true, true), managed(true))).toBe("wsl");
+  });
+  it("prefers a ready managed env over a not-logged-in native install", () => {
+    expect(recommendEnv(native(true, false), null, managed(true))).toBe("managed");
   });
 });

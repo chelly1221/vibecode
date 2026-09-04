@@ -102,7 +102,8 @@ impl ExecBackend for WslBackend {
 
 /// Decode wsl.exe's UTF-16LE output (used by `wsl -l -q`).
 fn decode_wsl_output(bytes: &[u8]) -> String {
-    if bytes.len() >= 2 && bytes.iter().skip(1).step_by(2).take(8).all(|b| *b == 0) {
+    // UTF-8 text never contains NUL bytes; wsl.exe's own UTF-16LE messages always do.
+    if bytes.len() >= 2 && bytes.iter().take(64).any(|b| *b == 0) {
         let u16s: Vec<u16> = bytes.chunks(2).map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect();
         String::from_utf16_lossy(&u16s)
     } else {

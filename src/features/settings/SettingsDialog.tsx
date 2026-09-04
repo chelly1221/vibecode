@@ -13,6 +13,7 @@ import { ipc, type AppSettings, type GitHubUser, type ToolStatus } from "@/lib/i
 import { useAppStore } from "@/stores/app";
 import { AuthCards } from "@/features/onboarding/AuthCards";
 import { BackendPicker } from "@/features/onboarding/BackendPicker";
+import { useManagedEnv } from "@/features/onboarding/useManagedEnv";
 import { DefaultsForm } from "@/features/onboarding/DefaultsForm";
 import { ToolsTable } from "@/features/onboarding/ToolsTable";
 
@@ -91,6 +92,7 @@ export function SettingsDialog() {
 }
 
 function BackendTab({ draft, patch }: { draft: AppSettings; patch: (p: Partial<AppSettings>) => void }) {
+  const managedEnv = useManagedEnv(true);
   const [distros, setDistros] = useState<string[]>([]);
   const [tools, setTools] = useState<ToolStatus[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -129,6 +131,15 @@ function BackendTab({ draft, patch }: { draft: AppSettings; patch: (p: Partial<A
         wslTools={null}
         recommended={null}
         loading={false}
+        managed={{
+          status: managedEnv.status,
+          tools: managedEnv.tools,
+          loggedIn: managedEnv.loggedIn,
+          recommended: false,
+          onChanged: async () => {
+            await managedEnv.refresh();
+          },
+        }}
       />
       <p className="text-xs text-muted-foreground">
         실행 환경을 바꾸면 저장 시 실행 중인 Codex 서버가 재시작되고, 새 세션부터 적용됩니다.

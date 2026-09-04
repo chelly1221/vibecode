@@ -1,3 +1,5 @@
 [env]
-# ts-rs writes TypeScript bindings here (run: cargo test -p vibecode-core export_bindings)
+# ts-rs writes TypeScript bindings here (any `cargo test -p vibecode-core` run regenerates them)
 TS_RS_EXPORT_DIR = { value = "src/lib/bindings", relative = true }
+# i64 fields become `number` (not `bigint`) on the TypeScript side
+TS_RS_LARGE_INT = "number"

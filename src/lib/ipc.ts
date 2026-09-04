@@ -17,6 +17,7 @@ import type { ModelInfo } from "./bindings/ModelInfo";
 import type { PermissionReply } from "./bindings/PermissionReply";
 import type { ProjectRecord } from "./bindings/ProjectRecord";
 import type { ProjectType } from "./bindings/ProjectType";
+import type { ProvisionEvent } from "./bindings/ProvisionEvent";
 import type { Provider } from "./bindings/Provider";
 import type { PtyEvent } from "./bindings/PtyEvent";
 import type { PtySpec } from "./bindings/PtySpec";
@@ -28,6 +29,7 @@ import type { SessionRecord } from "./bindings/SessionRecord";
 import type { StackInfo } from "./bindings/StackInfo";
 import type { TargetOs } from "./bindings/TargetOs";
 import type { ToolStatus } from "./bindings/ToolStatus";
+import type { WslStatus } from "./bindings/WslStatus";
 
 function channel<T>(handler: (msg: T) => void): Channel<T> {
   const ch = new Channel<T>();
@@ -49,6 +51,17 @@ export const ipc = {
       invoke<AuthStatus>("tools_auth_status", { provider, backend: backend ?? null }),
     listWslDistros: () => invoke<string[]>("tools_list_wsl_distros"),
     listModels: (provider: Provider) => invoke<ModelInfo[]>("models_list", { provider }),
+  },
+
+  env: {
+    /** WSL installation state plus whether the app-owned "Vibecoder" distro exists / is ready. */
+    wslStatus: () => invoke<WslStatus>("env_wsl_status"),
+    /** Elevated `wsl --install --no-distribution`; resolves with the exit code (reboot needed afterwards). */
+    installWsl: () => invoke<number>("env_install_wsl"),
+    reboot: () => invoke<void>("env_reboot"),
+    /** Download rootfs, import the distro, install tools. Streams progress to `onEvent`. */
+    provision: (onEvent: (e: ProvisionEvent) => void) => invoke<void>("env_provision", { onEvent: channel(onEvent) }),
+    removeManaged: () => invoke<void>("env_remove_managed"),
   },
 
   projects: {
@@ -131,6 +144,7 @@ export type {
   ProjectRecord,
   ProjectType,
   Provider,
+  ProvisionEvent,
   PtyEvent,
   PtySpec,
   ScaffoldEvent,
@@ -141,4 +155,5 @@ export type {
   StackInfo,
   TargetOs,
   ToolStatus,
+  WslStatus,
 };

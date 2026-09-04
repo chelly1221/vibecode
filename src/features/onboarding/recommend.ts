@@ -53,6 +53,24 @@ export function recommendCandidate(native: Candidate | null, wsl: Candidate | nu
   return "native";
 }
 
+export type EnvChoice = "native" | "wsl" | "managed";
+
+/**
+ * Three-way recommendation. A logged-in Claude anywhere wins; otherwise an installed Claude;
+ * if nothing on the PC has Claude, the app-owned environment is the way to go.
+ */
+export function recommendEnv(native: Candidate | null, wsl: Candidate | null, managed: Candidate | null): EnvChoice {
+  const hasClaude = (c: Candidate | null) => !!c && toolFound(c.tools, "claude");
+  if (!hasClaude(native) && !hasClaude(wsl) && !hasClaude(managed)) return "managed";
+  const scored: [EnvChoice, number][] = [
+    ["managed", scoreCandidate(managed) + (managed ? 2 : 0)],
+    ["native", scoreCandidate(native)],
+    ["wsl", scoreCandidate(wsl)],
+  ];
+  scored.sort((a, b) => b[1] - a[1]);
+  return scored[0][0];
+}
+
 /**
  * Legacy tool-only recommendation (kept for callers/tests without auth info):
  * prefer the backend where `claude` is installed; if both (or neither) have it, prefer Native
