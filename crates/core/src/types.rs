@@ -312,6 +312,10 @@ pub struct StackInfo {
     #[ts(optional = nullable)]
     #[serde(default)]
     pub dev_command: Option<String>,
+    /// Windows-side toolchains (see `toolchain::WIN_TOOLS` names: rust, msvc, node, dotnet, go) needed when the
+    /// agent works inside WSL but the build output must be a Windows program. Empty = builds fine on the backend.
+    #[serde(default)]
+    pub windows_toolchain: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -674,6 +678,58 @@ pub struct StackRecommendation {
     pub reason: String,
 }
 
+/// "Describe it in one line" project creation: the agent picks everything.
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct ProjectPlanRequest {
+    pub description: String,
+    /// Windows path the project will be created in (used to pick a free folder name). Empty = skip the check.
+    pub parent_dir: String,
+    pub provider: Provider,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct ProjectPlan {
+    pub name: String,
+    pub dir_name: String,
+    pub target_os: TargetOs,
+    pub project_type: ProjectType,
+    /// None = empty project (no scaffold).
+    #[ts(optional = nullable)]
+    pub stack_id: Option<String>,
+    /// One-sentence Korean summary of the project purpose.
+    pub summary: String,
+    /// Why this configuration was chosen (Korean, 1-2 sentences).
+    pub reason: String,
+    /// Backend-side prerequisites of the chosen stack that are not installed.
+    pub missing_tools: Vec<ToolStatus>,
+    /// Windows toolchain entries the stack needs when built from WSL (empty when not applicable).
+    pub windows_toolchain: Vec<WindowsToolStatus>,
+}
+
+// ---------------------------------------------------------------------------
+// Windows toolchain used from WSL (cargo.exe, node.exe, dotnet.exe ... via interop)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct WindowsToolStatus {
+    /// rust | msvc | node | dotnet | go
+    pub name: String,
+    pub label: String,
+    pub found: bool,
+    /// Windows path of the main executable (or install dir for msvc).
+    #[ts(optional = nullable)]
+    pub path: Option<String>,
+    #[ts(optional = nullable)]
+    pub version: Option<String>,
+    /// winget package id.
+    pub winget_id: String,
+    /// Shim names created in the WSL distro (`~/.local/bin`), e.g. cargo.exe, npm.cmd.
+    pub shims: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // UI preview (project dev server shown in a child webview)
 // ---------------------------------------------------------------------------
@@ -855,6 +911,9 @@ pub struct PtySpec {
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
+    /// Run on the Windows host even when the active backend is WSL (winget installs, PowerShell).
+    #[serde(default)]
+    pub host: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]

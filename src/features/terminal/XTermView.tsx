@@ -67,7 +67,7 @@ export function XTermView({ tab, active }: Props) {
     (async () => {
       try {
         const ptyId = await ipc.pty.open(
-          { program: tab.program, args: tab.args, cwd: tab.cwd, cols: term.cols, rows: term.rows },
+          { program: tab.program, args: tab.args, cwd: tab.cwd, cols: term.cols, rows: term.rows, host: tab.host },
           (ev) => {
             if (disposed) return;
             if (ev.type === "data") term.write(ev.data);

@@ -134,7 +134,7 @@ pub async fn recommend(backend: Arc<dyn ExecBackend>, bin: Option<String>, req: 
     let prompt = build_prompt(&req, &stacks);
     let cwd = std::env::temp_dir();
     let raw = match req.provider {
-        Provider::Claude => claude_structured(backend, bin, &cwd, &prompt).await?,
+        Provider::Claude => claude_structured(backend, bin, &cwd, &prompt, SCHEMA).await?,
         Provider::Codex => {
             let text = crate::agents::codex::exec::run_exec(backend, bin, &cwd, &prompt, None).await?;
             Value::String(text)
@@ -148,10 +148,11 @@ pub async fn recommend(backend: Arc<dyn ExecBackend>, bin: Option<String>, req: 
 }
 
 /// `claude -p --output-format json --json-schema …`; returns `structured_output` (or the result text).
-async fn claude_structured(backend: Arc<dyn ExecBackend>, bin: Option<String>, cwd: &std::path::Path, prompt: &str) -> Result<Value> {
+/// Shared by the stack recommendation and the one-line project plan.
+pub(crate) async fn claude_structured(backend: Arc<dyn ExecBackend>, bin: Option<String>, cwd: &std::path::Path, prompt: &str, schema: &str) -> Result<Value> {
     let bin = bin.filter(|b| !b.trim().is_empty()).unwrap_or_else(|| "claude".into());
     let spec = CommandSpec::new(bin)
-        .args(["-p", "--output-format", "json", "--json-schema", SCHEMA, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--disallowedTools", "*"])
+        .args(["-p", "--output-format", "json", "--json-schema", schema, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--disallowedTools", "*"])
         .cwd(cwd);
     let mut cmd = backend.command(&spec);
     cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());

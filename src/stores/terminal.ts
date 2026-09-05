@@ -10,6 +10,8 @@ export interface TerminalTab {
   program: string | null;
   args: string[];
   cwd: string | null;
+  /** Run on the Windows host even when the backend is WSL. */
+  host: boolean;
   ptyId: string | null;
   exitCode: number | null | undefined; // undefined = running
 }
@@ -41,6 +43,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       program: cmd.program,
       args: cmd.args,
       cwd: cwd ?? null,
+      host: cmd.host ?? false,
       ptyId: null,
       exitCode: undefined,
     };

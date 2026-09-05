@@ -14,6 +14,7 @@ import { ipc, type StackInfo } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app";
 import { DEVICE_SIZES, usePreviewStore, type DevicePreset } from "@/stores/preview";
+import { rewriteForWindowsToolchain, windowsToolchainApplies } from "@/features/projects/toolchain";
 
 let stacksCache: Promise<StackInfo[]> | null = null;
 const loadStacks = () => (stacksCache ??= ipc.projects.stacksList().catch(() => []));
@@ -40,7 +41,10 @@ export function PreviewPane() {
     if (!pv.command && project.stack_id) {
       loadStacks().then((stacks) => {
         const st = stacks.find((s) => s.id === project.stack_id);
-        if (st?.dev_command && !usePreviewStore.getState().command) pv.setCommand(st.dev_command);
+        if (st?.dev_command && !usePreviewStore.getState().command) {
+          const backend = useAppStore.getState().settings?.backend.kind ?? "native";
+          pv.setCommand(windowsToolchainApplies(backend, project.target_os, st) ? rewriteForWindowsToolchain(st.dev_command) : st.dev_command);
+        }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

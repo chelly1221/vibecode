@@ -46,7 +46,9 @@ impl PtyManager {
 
     /// Build the command for `spec` on `backend`.
     pub fn build_command(backend: &dyn ExecBackend, spec: &PtySpec) -> CommandBuilder {
-        let mut cmd = match backend.kind() {
+        // `host` forces the Windows side (winget installs, PowerShell) even when agents run in WSL.
+        let kind = if spec.host { BackendKind::Native } else { backend.kind() };
+        let mut cmd = match kind {
             BackendKind::Wsl => {
                 let mut c = CommandBuilder::new("wsl.exe");
                 if let Some(distro) = backend.wsl_distro() {
@@ -229,21 +231,30 @@ mod tests {
     #[test]
     fn wsl_command_shape() {
         let b = WslBackend::new("Ubuntu".into());
-        let spec = PtySpec { program: Some("claude".into()), args: vec!["auth".into(), "status".into()], cwd: Some("C:\\code\\x".into()), cols: 80, rows: 24 };
+        let spec = PtySpec { program: Some("claude".into()), args: vec!["auth".into(), "status".into()], cwd: Some("C:\\code\\x".into()), cols: 80, rows: 24, host: false };
         let cmd = PtyManager::build_command(&b, &spec);
         let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
         assert_eq!(argv, vec!["wsl.exe", "-d", "Ubuntu", "--cd", "/mnt/c/code/x", "--", "bash", "-lc", "claude auth status"]);
 
-        let spec = PtySpec { program: None, args: vec![], cwd: None, cols: 80, rows: 24 };
+        let spec = PtySpec { program: None, args: vec![], cwd: None, cols: 80, rows: 24, host: false };
         let cmd = PtyManager::build_command(&b, &spec);
         let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
         assert_eq!(argv, vec!["wsl.exe", "-d", "Ubuntu", "--cd", "~", "--", "bash", "-l"]);
     }
 
     #[test]
+    fn host_flag_bypasses_wsl() {
+        let b = WslBackend::new("Ubuntu".into());
+        let spec = PtySpec { program: Some("powershell.exe".into()), args: vec!["-NoExit".into(), "-Command".into(), "winget --version".into()], cwd: None, cols: 80, rows: 24, host: true };
+        let cmd = PtyManager::build_command(&b, &spec);
+        let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        assert_eq!(argv, vec!["powershell.exe", "-NoExit", "-Command", "winget --version"]);
+    }
+
+    #[test]
     fn native_program_shape() {
         let b = NativeBackend::new();
-        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24 };
+        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24, host: false };
         let cmd = PtyManager::build_command(&b, &spec);
         let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
         assert_eq!(argv, vec!["cmd.exe", "/c", "echo hi"]);
@@ -256,7 +267,7 @@ mod tests {
         use std::sync::mpsc;
         let mgr = PtyManager::new();
         let (tx, rx) = mpsc::channel::<PtyEvent>();
-        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24 };
+        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24, host: false };
         let id = mgr
             .open(Arc::new(NativeBackend::new()), spec, Box::new(move |ev| {
                 let _ = tx.send(ev);

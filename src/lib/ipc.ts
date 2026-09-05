@@ -27,6 +27,8 @@ import type { ModelInfo } from "./bindings/ModelInfo";
 import type { PermissionReply } from "./bindings/PermissionReply";
 import type { PreviewEvent } from "./bindings/PreviewEvent";
 import type { PreviewStatus } from "./bindings/PreviewStatus";
+import type { ProjectPlan } from "./bindings/ProjectPlan";
+import type { ProjectPlanRequest } from "./bindings/ProjectPlanRequest";
 import type { ProjectRecord } from "./bindings/ProjectRecord";
 import type { ProjectType } from "./bindings/ProjectType";
 import type { ProvisionEvent } from "./bindings/ProvisionEvent";
@@ -41,6 +43,7 @@ import type { SessionRecord } from "./bindings/SessionRecord";
 import type { StackInfo } from "./bindings/StackInfo";
 import type { TargetOs } from "./bindings/TargetOs";
 import type { ToolStatus } from "./bindings/ToolStatus";
+import type { WindowsToolStatus } from "./bindings/WindowsToolStatus";
 import type { WslStatus } from "./bindings/WslStatus";
 
 export interface PreviewBounds {
@@ -108,6 +111,18 @@ export const ipc = {
       invoke<StackInfo[]>("stacks_recommend", { targetOs, projectType }),
     /** One-shot agent call ranking catalog stacks for a free-text description. */
     stacksAiRecommend: (req: StackRecommendRequest) => invoke<StackRecommendation[]>("stacks_ai_recommend", { req }),
+    /** "Describe it in one line": the agent picks name, folder, target, type and stack. */
+    aiPlan: (req: ProjectPlanRequest) => invoke<ProjectPlan>("projects_ai_plan", { req }),
+  },
+
+  /** Windows toolchain used from WSL (cargo.exe, node.exe, dotnet.exe ... via interop). */
+  toolchain: {
+    /** Status of the toolchains a stack needs (all known ones when no stack is given). */
+    status: (stackId?: string | null) => invoke<WindowsToolStatus[]>("toolchain_status", { stackId: stackId ?? null }),
+    /** PowerShell script installing the named toolchains with winget (run it in a host terminal). */
+    installScript: (names: string[]) => invoke<string>("toolchain_install_script", { names }),
+    /** Detect everything and (re)write the shims in the active WSL distro; resolves with the shim names. */
+    writeShims: () => invoke<string[]>("toolchain_write_shims"),
   },
 
   sessions: {
@@ -209,6 +224,9 @@ export type {
   SshKeyInfo,
   StackRecommendRequest,
   StackRecommendation,
+  ProjectPlanRequest,
+  ProjectPlan,
+  WindowsToolStatus,
   AuthStatus,
   BackendConfig,
   CreateProjectRequest,

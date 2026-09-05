@@ -8,4 +8,8 @@ program?: string | null, args: Array<string>,
 /**
  * Windows path.
  */
-cwd?: string | null, cols: number, rows: number, };
+cwd?: string | null, cols: number, rows: number, 
+/**
+ * Run on the Windows host even when the active backend is WSL (winget installs, PowerShell).
+ */
+host: boolean, };

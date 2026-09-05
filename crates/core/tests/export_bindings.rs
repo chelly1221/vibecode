@@ -14,6 +14,6 @@ fn export_bindings() {
         TargetOs, ProjectType, StackInfo, ProjectRecord, CreateProjectRequest, ScaffoldEvent, SessionConfig,
         SessionConfigPatch, SessionRecord, MessageKind, MessageRecord, PermissionKind, PermissionDecision,
         PermissionReply, PlanStep, Usage, SessionEvent, GitFileStatus, GitStatus, GitBranch, GitCommit, GitHubUser,
-        GitHubRepo, PtySpec, PtyEvent, WslState, WslStatus, ProvisionEvent, McpTransport, EnvVar, McpServerConfig, QuestionOption, AgentQuestion, QuestionAnswer, CheckpointRecord, FsEntry, FsFile, StackRecommendRequest, StackRecommendation, SshKeyInfo, PreviewEvent, PreviewStatus, AgentDocsStatus,
+        GitHubRepo, PtySpec, PtyEvent, WslState, WslStatus, ProvisionEvent, McpTransport, EnvVar, McpServerConfig, QuestionOption, AgentQuestion, QuestionAnswer, CheckpointRecord, FsEntry, FsFile, StackRecommendRequest, StackRecommendation, SshKeyInfo, PreviewEvent, PreviewStatus, AgentDocsStatus, ProjectPlanRequest, ProjectPlan, WindowsToolStatus,
     );
 }

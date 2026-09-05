@@ -10,6 +10,7 @@ pub mod projects;
 pub mod pty;
 pub mod sessions;
 pub mod settings;
+pub mod toolchain;
 pub mod tools;
 
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
@@ -39,6 +40,10 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         projects::stacks_ai_recommend,
         projects::projects_agent_docs_status,
         projects::projects_generate_agent_docs,
+        projects::projects_ai_plan,
+        toolchain::toolchain_status,
+        toolchain::toolchain_install_script,
+        toolchain::toolchain_write_shims,
         sessions::session_start,
         sessions::session_send,
         sessions::session_interrupt,

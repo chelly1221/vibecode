@@ -63,6 +63,14 @@ fn install_hint(name: &str, kind: BackendKind) -> Option<String> {
     Some(s.to_string())
 }
 
+/// In WSL the Windows PATH is usually appended, so `command -v npm` can resolve to the Windows node
+/// distribution's sh script under /mnt/c. That is not a usable backend-side tool (the Windows
+/// toolchain is tracked separately by `toolchain`), so treat it as missing.
+pub fn is_windows_side_path(kind: BackendKind, path: &str) -> bool {
+    let b = path.as_bytes();
+    matches!(kind, BackendKind::Wsl) && path.starts_with("/mnt/") && b.len() > 6 && b[5].is_ascii_alphabetic() && b[6] == b'/'
+}
+
 fn first_line(s: &str) -> String {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string()
 }
@@ -80,6 +88,7 @@ pub async fn detect(backend: Arc<dyn ExecBackend>, name: &str, bin_override: Opt
     let mut status = ToolStatus { name: name.to_string(), found: false, path: None, version: None, install_hint: install_hint(name, kind) };
 
     let path = match backend.which(&program).await {
+        Some(p) if bin_override.is_none() && is_windows_side_path(kind, &p) => return status,
         Some(p) => p,
         None => {
             // An override may be an absolute path that `which` can't resolve; try it directly.
@@ -141,6 +150,14 @@ mod tests {
             assert!(install_hint(t, BackendKind::Native).is_some(), "{t}");
             assert!(install_hint(t, BackendKind::Wsl).is_some(), "{t}");
         }
+    }
+
+    #[test]
+    fn windows_side_paths_are_not_linux_tools() {
+        assert!(is_windows_side_path(BackendKind::Wsl, "/mnt/c/nvm4w/nodejs/npm"));
+        assert!(!is_windows_side_path(BackendKind::Wsl, "/home/me/.local/bin/claude"));
+        assert!(!is_windows_side_path(BackendKind::Wsl, "/mnt/wsl/x"));
+        assert!(!is_windows_side_path(BackendKind::Native, "/mnt/c/x"));
     }
 
     #[test]

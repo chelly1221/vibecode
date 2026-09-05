@@ -16,9 +16,11 @@ Personal-use app (not distributed). Full design: `docs/PLAN.md`.
 ## Build & test (run from WSL, uses the Windows toolchain)
 This repo is developed from WSL but compiled with the Windows toolchain so the result is a real Windows exe.
 - `cargo.exe check --workspace` / `cargo.exe test -p vibecode-core` (Windows cargo; invoked directly from WSL)
-- `npm run build` (Windows node via the nvm4w shim), `cargo.exe tauri build --bundles nsis` for the installer.
-  Updater artifacts need the signing key or the last step reports an error (installer is still produced):
-  `WSLENV=TAURI_SIGNING_PRIVATE_KEY_PATH/w TAURI_SIGNING_PRIVATE_KEY_PATH='C:\Users\<user>\.tauri\vibecoder.key' cargo.exe tauri build --bundles nsis`
+- `npm run build` (Windows node via the nvm4w shim), `cargo.exe tauri build --bundles nsis` for the installer
+  (`target/release/bundle/nsis/Vibecoder_<ver>_x64-setup.exe`). Its last step fails with "no private key" but the installer is done.
+  Sign the updater artifact separately (the build only reads `TAURI_SIGNING_PRIVATE_KEY`, not `*_PATH`, and an empty
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` does not survive WSLENV, so the in-build signing hangs on a console password prompt):
+  `cargo.exe tauri signer sign -k "$(cat /mnt/c/Users/<user>/.tauri/vibecoder.key)" -p "" 'C:\code\vibecode\target\release\bundle\nsis\Vibecoder_0.1.0_x64-setup.exe'`
 - `npm run tauri dev` opens the app on the Windows desktop
 - Regenerate TS bindings after touching `types.rs`: `cargo.exe test -p vibecode-core --test export_bindings`
 - Do NOT run `cargo` (Linux) here: no GTK/webkit dev libs in WSL and it would build a Linux binary.
@@ -29,6 +31,11 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
 - Streaming to the UI uses `tauri::ipc::Channel<T>`; long-lived state lives in `vibecode_core::AppContext`.
 - Adapters must never block the Tokio runtime: use `tokio::process`, `spawn_blocking` for sync libs (rusqlite, portable-pty).
 - Windows child processes are spawned via `backend::process::spawn_tracked` (job object + no console window).
+- New project flow: quick mode first (`ProjectWizard` → `StepDescribe` → `projects_ai_plan` → `PlanSummary` → create → `startFirstSession`);
+  the six-step wizard stays behind "바꾸기 (고급)". `crates/core/src/projects/ai_plan.rs` builds the prompt/validation.
+- WSL building Windows programs: `crates/core/src/toolchain.rs` (detect host rust/msvc/node/dotnet/go, winget install script run
+  in a host PowerShell PTY via `PtySpec.host`, `~/.local/bin` shims `cargo.exe`/`npm.cmd`/...). Stacks opt in with
+  `windows_toolchain` in `stacks.toml`; scaffold commands, AGENTS.md notes and the preview dev command are rewritten to the shims.
 - Runtime facts verified 2026-09-04: Claude Code CLI 2.1.260 (`--effort low|medium|high|xhigh|max`,
   `--permission-mode manual|acceptEdits|auto|plan|dontAsk|bypassPermissions`, `--permission-prompts host|none`,
   `--permission-prompt-tool`, `--input-format/--output-format stream-json`, `--include-partial-messages`,

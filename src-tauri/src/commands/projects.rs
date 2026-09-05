@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 use vibecode_core::projects::{catalog, scaffold};
-use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
+use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ProjectPlan, ProjectPlanRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
 
 use crate::state::{err, AppState};
 
@@ -67,4 +67,10 @@ pub async fn projects_agent_docs_status(state: State<'_, AppState>, id: String) 
 #[tauri::command]
 pub async fn projects_generate_agent_docs(state: State<'_, AppState>, id: String, description: Option<String>) -> Result<Vec<String>, String> {
     scaffold::generate_agent_docs_if_missing(state.ctx.clone(), &id, description.as_deref().unwrap_or("")).await.map_err(err)
+}
+
+/// "Describe it in one line": the agent picks name, folder, target, type and stack (validated against the catalog).
+#[tauri::command]
+pub async fn projects_ai_plan(state: State<'_, AppState>, req: ProjectPlanRequest) -> Result<ProjectPlan, String> {
+    vibecode_core::projects::ai_plan::plan(state.ctx.clone(), req).await.map_err(err)
 }

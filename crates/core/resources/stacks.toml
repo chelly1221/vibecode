@@ -2,12 +2,15 @@
 # targets: windows | macos | linux | cross_desktop | web | android | ios | server
 # types:   desktop_app | web_app | mobile_app | cli | api_server | library | game | script
 # scaffold_cmd runs in the parent directory; {name} is replaced by the project name.
+# windows_toolchain: Windows-side tools (rust, msvc, node, dotnet, go) needed when the agent works in WSL but the
+#   output must be a Windows program (see core::toolchain). Applied for windows / cross_desktop targets only.
 # It must be non-interactive and must work both in PowerShell 5.1 (native) and bash (WSL):
 # no shell operators (&&, |, redirects), single command only.
 
 # ---------------------------------------------------------------- desktop
 [[stack]]
 id = "tauri-react"
+windows_toolchain = ["node", "rust", "msvc"]
 dev_command = "npm run dev"
 name = "Tauri 2 + Rust + React/TS"
 summary = "Rust 백엔드와 WebView 프론트로 가볍고 빠른 데스크톱 앱. 이 도구(vibecode)와 같은 스택."
@@ -30,6 +33,7 @@ agent_notes = """
 
 [[stack]]
 id = "dotnet-wpf"
+windows_toolchain = ["dotnet"]
 name = ".NET 8 WPF (C#)"
 summary = "Windows 전용 네이티브 데스크톱 앱. XAML UI, Visual Studio 친화적."
 targets = ["windows"]
@@ -50,6 +54,7 @@ agent_notes = """
 
 [[stack]]
 id = "electron-vite"
+windows_toolchain = ["node"]
 dev_command = "npm run dev"
 name = "Electron + Vite + React/TS"
 summary = "Chromium 내장 데스크톱 앱. Node API를 그대로 쓰며 웹 개발자에게 가장 익숙함."
@@ -372,6 +377,7 @@ agent_notes = """
 # ---------------------------------------------------------------- cli
 [[stack]]
 id = "rust-cli"
+windows_toolchain = ["rust", "msvc"]
 name = "Rust CLI (clap)"
 summary = "단일 바이너리로 배포되는 빠른 CLI 도구."
 targets = ["windows", "macos", "linux", "cross_desktop"]
@@ -392,6 +398,7 @@ agent_notes = """
 
 [[stack]]
 id = "go-cli"
+windows_toolchain = ["go"]
 name = "Go CLI (cobra)"
 summary = "빠른 컴파일과 간단한 배포의 CLI. 크로스 컴파일이 쉬움."
 targets = ["windows", "macos", "linux", "cross_desktop"]
@@ -503,6 +510,7 @@ agent_notes = """
 
 [[stack]]
 id = "bevy"
+windows_toolchain = ["rust", "msvc"]
 name = "Bevy (Rust)"
 summary = "ECS 기반 Rust 게임 엔진. 코드 중심 개발."
 targets = ["windows", "macos", "linux", "cross_desktop", "web"]

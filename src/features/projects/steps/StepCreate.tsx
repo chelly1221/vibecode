@@ -1,4 +1,4 @@
-import { CheckCircle2, MessageSquarePlus, RotateCcw, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, MessageSquarePlus, RotateCcw, XCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useWizardStore } from "@/stores/wizard";
@@ -11,6 +11,8 @@ interface StepCreateProps {
 
 export function StepCreate({ onStartSession, onClose }: StepCreateProps) {
   const scaffold = useWizardStore((s) => s.scaffold);
+  const autoStart = useWizardStore((s) => s.autoStart);
+  const autoStartError = useWizardStore((s) => s.autoStartError);
   const runCreate = useWizardStore((s) => s.runCreate);
 
   return (
@@ -31,8 +33,20 @@ export function StepCreate({ onStartSession, onClose }: StepCreateProps) {
           <AlertDescription className="break-all whitespace-pre-wrap">{scaffold.error ?? "알 수 없는 오류"}</AlertDescription>
         </Alert>
       )}
+      {autoStart === "starting" && (
+        <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin text-primary" /> 첫 대화를 시작하고 설명을 AI에게 전달하는 중…
+        </div>
+      )}
+      {autoStart === "failed" && (
+        <Alert variant="destructive">
+          <XCircle />
+          <AlertTitle>첫 대화를 자동으로 시작하지 못했습니다</AlertTitle>
+          <AlertDescription className="break-all whitespace-pre-wrap text-xs">{autoStartError ?? ""}</AlertDescription>
+        </Alert>
+      )}
       <ScaffoldLog scaffold={scaffold} />
-      {scaffold.status !== "running" && (
+      {scaffold.status !== "running" && autoStart !== "starting" && (
         <div className="flex justify-end gap-2">
           {scaffold.status === "failed" && (
             <Button variant="outline" onClick={() => void runCreate()}>

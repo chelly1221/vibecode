@@ -15,7 +15,8 @@ use crate::context::AppContext;
 use crate::error::{CoreError, Result};
 use crate::git::Git;
 use crate::github::GitHubClient;
-use crate::types::{BackendKind, CreateProjectRequest, ProjectRecord, ScaffoldEvent, StackInfo};
+use crate::toolchain;
+use crate::types::{BackendKind, CreateProjectRequest, ProjectRecord, ScaffoldEvent, StackInfo, WindowsToolStatus};
 
 struct Reporter(UnboundedSender<ScaffoldEvent>);
 
@@ -191,10 +192,36 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     let backend = ctx.backend().await;
     rep.log(format!("실행 백엔드: {}", backend.label()));
 
+    // WSL + Windows-target stack: connect the Windows toolchain (cargo.exe, npm.cmd, ...) before scaffolding
+    // so the scaffold command and the agent both use the Windows tools.
+    let win_toolchain: Option<Vec<WindowsToolStatus>> = if toolchain::applies(backend.kind(), Some(req.target_os), stack.as_ref()) {
+        rep.step("Windows 툴체인 연결");
+        let names = stack.as_ref().map(|s| s.windows_toolchain.clone()).unwrap_or_default();
+        let statuses = toolchain::detect(&names).await;
+        for st in &statuses {
+            if st.found {
+                rep.log(format!("{}: {}{}", st.label, st.path.clone().unwrap_or_default(), st.version.as_deref().map(|v| format!(" ({v})")).unwrap_or_default()));
+            } else {
+                rep.warn(format!("{} 없음 → Windows PowerShell에서 설치: winget install -e --id {}", st.label, st.winget_id));
+            }
+        }
+        match toolchain::write_shims(backend.clone(), &statuses).await {
+            Ok(shims) if !shims.is_empty() => rep.log(format!("WSL shim 갱신: {}", shims.join(" "))),
+            Ok(_) => rep.warn("연결할 Windows 툴체인이 없어 shim을 만들지 않았습니다."),
+            Err(e) => rep.warn(format!("shim 작성 실패: {e}")),
+        }
+        Some(statuses)
+    } else {
+        None
+    };
+
     rep.step("스캐폴딩");
     match stack.as_ref().and_then(|s| s.scaffold_cmd.as_deref()) {
         Some(cmd) => {
-            let script = cmd.replace("{name}", name);
+            let mut script = cmd.replace("{name}", name);
+            if win_toolchain.is_some() {
+                script = toolchain::rewrite_command(&script);
+            }
             rep.log(format!("$ {script}"));
             run_streaming(&backend, &script, &parent, rep).await?;
             if !target.is_dir() {
@@ -228,7 +255,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
 
     if req.generate_agent_docs {
         rep.step("에이전트 문서 생성");
-        let docs = agent_docs::generate(&project, stack.as_ref(), &req.description);
+        let docs = agent_docs::generate(&project, stack.as_ref(), &req.description, win_toolchain.as_deref());
         std::fs::write(target.join("AGENTS.md"), docs.agents_md)?;
         std::fs::write(target.join("CLAUDE.md"), docs.claude_md)?;
         rep.log("CLAUDE.md, AGENTS.md 생성");
@@ -500,7 +527,16 @@ pub async fn generate_agent_docs_if_missing(ctx: Arc<AppContext>, project_id: &s
         Some(id) => catalog::get(id)?,
         None => None,
     };
-    let docs = agent_docs::generate(&project, stack.as_ref(), description);
+    let backend = ctx.backend().await;
+    let win_toolchain = if toolchain::applies(backend.kind(), project.target_os, stack.as_ref()) {
+        let names = stack.as_ref().map(|s| s.windows_toolchain.clone()).unwrap_or_default();
+        let statuses = toolchain::detect(&names).await;
+        let _ = toolchain::write_shims(backend.clone(), &statuses).await;
+        Some(statuses)
+    } else {
+        None
+    };
+    let docs = agent_docs::generate(&project, stack.as_ref(), description, win_toolchain.as_deref());
     let mut written = Vec::new();
     let claude = dir.join("CLAUDE.md");
     if !claude.exists() {

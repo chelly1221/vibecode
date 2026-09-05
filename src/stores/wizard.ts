@@ -5,6 +5,7 @@ import {
   ipc,
   type AppSettings,
   type CreateProjectRequest,
+  type ProjectPlan,
   type ProjectRecord,
   type ProjectType,
   type Provider,
@@ -20,6 +21,11 @@ import { validateDirName, validateProjectName } from "@/features/projects/valida
 
 export const WIZARD_STEPS = ["이름 · 경로", "대상 OS", "유형", "스택", "옵션", "생성"] as const;
 export type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
+
+/** quick = describe in one line, the agent picks everything; advanced = the six-step wizard. */
+export type WizardMode = "quick" | "advanced";
+export type QuickView = "describe" | "summary";
+export type AutoStartStatus = "idle" | "starting" | "done" | "failed";
 
 export interface WizardForm {
   name: string;
@@ -55,6 +61,15 @@ export interface ScaffoldState {
 
 interface WizardState {
   step: WizardStep;
+  mode: WizardMode;
+  quickView: QuickView;
+  /** Result of the one-line plan (quick mode). */
+  plan: ProjectPlan | null;
+  planLoading: boolean;
+  planError: string | null;
+  /** First session auto-start after a quick-mode creation. */
+  autoStart: AutoStartStatus;
+  autoStartError: string | null;
   form: WizardForm;
   stacks: StackInfo[];
   stacksLoading: boolean;
@@ -65,6 +80,13 @@ interface WizardState {
   aiLoading: boolean;
 
   reset: (settings: AppSettings | null) => void;
+  setMode: (mode: WizardMode) => void;
+  setQuickView: (view: QuickView) => void;
+  /** Ask the agent for the whole configuration and copy it into the form. */
+  runPlan: (provider: Provider) => Promise<ProjectPlan | null>;
+  /** Re-detect tools for the current plan (after the user installed something). */
+  refreshPlanTools: () => Promise<void>;
+  setAutoStart: (status: AutoStartStatus, error?: string | null) => void;
   setField: <K extends keyof WizardForm>(key: K, value: WizardForm[K]) => void;
   goTo: (step: WizardStep) => void;
   next: () => void;
@@ -106,6 +128,13 @@ const initialScaffold: ScaffoldState = { status: "idle", steps: [], logs: [], pr
 
 export const useWizardStore = create<WizardState>((set, get) => ({
   step: 0,
+  mode: "quick",
+  quickView: "describe",
+  plan: null,
+  planLoading: false,
+  planError: null,
+  autoStart: "idle",
+  autoStartError: null,
   form: initialForm(null),
   stacks: [],
   stacksLoading: false,
@@ -114,7 +143,71 @@ export const useWizardStore = create<WizardState>((set, get) => ({
   aiRecs: null,
   aiLoading: false,
 
-  reset: (settings) => set({ step: 0, form: initialForm(settings), stacks: [], scaffold: initialScaffold, aiRecs: null, aiLoading: false }),
+  reset: (settings) =>
+    set({
+      step: 0,
+      mode: "quick",
+      quickView: "describe",
+      plan: null,
+      planLoading: false,
+      planError: null,
+      autoStart: "idle",
+      autoStartError: null,
+      form: initialForm(settings),
+      stacks: [],
+      scaffold: initialScaffold,
+      aiRecs: null,
+      aiLoading: false,
+    }),
+
+  setMode: (mode) => set({ mode, step: 0 }),
+  setQuickView: (quickView) => set({ quickView }),
+
+  runPlan: async (provider) => {
+    const { form } = get();
+    set({ planLoading: true, planError: null });
+    try {
+      const plan = await ipc.projects.aiPlan({ description: form.description.trim(), parent_dir: form.parentDir.trim(), provider });
+      set((s) => ({
+        plan,
+        quickView: "summary",
+        form: {
+          ...s.form,
+          name: plan.name,
+          dirName: plan.dir_name,
+          dirNameEdited: true,
+          targetOs: plan.target_os,
+          projectType: plan.project_type,
+          stackId: plan.stack_id ?? null,
+          stackChosen: true,
+          gitInit: true,
+          generateDocs: true,
+        },
+      }));
+      return plan;
+    } catch (e) {
+      set({ planError: String(e) });
+      return null;
+    } finally {
+      set({ planLoading: false });
+    }
+  },
+
+  refreshPlanTools: async () => {
+    const { plan } = get();
+    if (!plan) return;
+    const [tools, win] = await Promise.all([
+      ipc.tools.detect().catch(() => null),
+      plan.windows_toolchain.length ? ipc.toolchain.status(plan.stack_id ?? null).catch(() => null) : Promise.resolve(null),
+    ]);
+    set((s) => {
+      if (!s.plan) return {};
+      const missing = tools ? s.plan.missing_tools.map((m) => tools.find((t) => t.name === m.name) ?? m).filter((t) => !t.found) : s.plan.missing_tools;
+      return { tools: tools ?? s.tools, plan: { ...s.plan, missing_tools: missing, windows_toolchain: win ?? s.plan.windows_toolchain } };
+    });
+  },
+
+  setAutoStart: (autoStart, error = null) => set({ autoStart, autoStartError: error }),
 
   setField: (key, value) => set((s) => ({ form: { ...s.form, [key]: value } })),
 

@@ -7,6 +7,8 @@ export interface TerminalCommand {
   program: string | null;
   args: string[];
   title: string;
+  /** Run on the Windows host even when the backend is WSL (winget installs). */
+  host?: boolean;
 }
 
 /** Command that starts the provider's interactive login flow. */
@@ -32,4 +34,12 @@ export function installCommand(hint: string, backend: BackendKind, title = "설�
 /** Plain interactive shell for the backend. */
 export function shellCommand(): TerminalCommand {
   return { program: null, args: [], title: "터미널" };
+}
+
+/**
+ * Run a PowerShell script on the Windows host regardless of the active backend and keep the
+ * window open afterwards (Windows toolchain installs through winget).
+ */
+export function hostPowershellCommand(script: string, title: string): TerminalCommand {
+  return { program: "powershell.exe", args: ["-NoLogo", "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", script], title, host: true };
 }

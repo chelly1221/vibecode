@@ -17,6 +17,7 @@
 //! - `pty`        interactive terminal sessions (login flows)
 //! - `preview`    dev-server runner for the UI preview
 //! - `tools`      CLI detection and auth status
+//! - `toolchain`  Windows toolchain (cargo.exe, node.exe, dotnet.exe …) detection, winget install script and WSL shims
 
 pub mod agents;
 pub mod backend;
@@ -33,6 +34,7 @@ pub mod preview;
 pub mod projects;
 pub mod pty;
 pub mod secrets;
+pub mod toolchain;
 pub mod tools;
 pub mod types;
 
