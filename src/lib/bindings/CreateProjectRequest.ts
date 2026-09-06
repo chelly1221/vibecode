@@ -18,4 +18,9 @@ dir_name?: string | null,
 /**
  * Parent directory (Windows path). Project dir = parent/dir_name.
  */
-parent_dir: string, target_os: TargetOs, project_type: ProjectType, stack_id?: string | null, description: string, git_init: boolean, create_github_repo: boolean, github_private: boolean, generate_agent_docs: boolean, default_provider?: Provider | null, default_model?: string | null, default_effort?: Effort | null, default_permission?: PermissionPreset | null, };
+parent_dir: string, target_os: TargetOs, project_type: ProjectType, stack_id?: string | null, description: string, git_init: boolean, create_github_repo: boolean, github_private: boolean, generate_agent_docs: boolean, 
+/**
+ * Install missing prerequisites before scaffolding: Windows toolchains with winget on the host,
+ * backend-side tools with their install hints. Progress arrives as `ScaffoldEvent::Install`.
+ */
+install_missing_tools: boolean, default_provider?: Provider | null, default_model?: string | null, default_effort?: Effort | null, default_permission?: PermissionPreset | null, };

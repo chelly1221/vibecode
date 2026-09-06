@@ -2,15 +2,13 @@
 //! optional GitHub repo. Progress is streamed as `ScaffoldEvent`s.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 
 use chrono::Utc;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::{agent_docs, catalog};
-use crate::backend::{process::spawn_tracked, ExecBackend};
+use super::{agent_docs, catalog, install};
+use crate::backend::{process, ExecBackend};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
 use crate::git::Git;
@@ -29,6 +27,9 @@ impl Reporter {
     }
     fn warn(&self, line: impl Into<String>) {
         let _ = self.0.send(ScaffoldEvent::Log { line: line.into(), is_err: true });
+    }
+    fn line(&self, line: String, is_err: bool) {
+        let _ = self.0.send(ScaffoldEvent::Log { line, is_err });
     }
 }
 
@@ -53,33 +54,9 @@ fn join_host(parent: &str, name: &str) -> String {
 async fn run_streaming(backend: &Arc<dyn ExecBackend>, script: &str, parent: &Path, rep: &Reporter) -> Result<()> {
     let spec = backend.shell(script, Some(parent));
     let mut cmd = backend.command(&spec);
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // Non-interactive hints for common scaffolders.
     cmd.env("CI", "1").env("npm_config_yes", "true").env("NO_COLOR", "1").env("FORCE_COLOR", "0");
-    let mut child = spawn_tracked(&mut cmd)?;
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let tx_out = rep.0.clone();
-    let tx_err = rep.0.clone();
-    let out_task = tokio::spawn(async move {
-        if let Some(s) = stdout {
-            let mut lines = BufReader::new(s).lines();
-            while let Ok(Some(l)) = lines.next_line().await {
-                let _ = tx_out.send(ScaffoldEvent::Log { line: l, is_err: false });
-            }
-        }
-    });
-    let err_task = tokio::spawn(async move {
-        if let Some(s) = stderr {
-            let mut lines = BufReader::new(s).lines();
-            while let Ok(Some(l)) = lines.next_line().await {
-                let _ = tx_err.send(ScaffoldEvent::Log { line: l, is_err: true });
-            }
-        }
-    });
-    let status = child.wait().await?;
-    let _ = out_task.await;
-    let _ = err_task.await;
+    let status = process::stream_lines(&mut cmd, |line, is_err| rep.line(line, is_err)).await?;
     if status.success() {
         Ok(())
     } else {
@@ -191,6 +168,26 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     };
     let backend = ctx.backend().await;
     rep.log(format!("실행 백엔드: {}", backend.label()));
+
+    // Install what the stack needs first (winget on the host for Windows toolchains, install hints on the
+    // backend). Failures are reported, not fatal: the project is still created and the docs list what is missing.
+    if req.install_missing_tools {
+        rep.step("필요한 도구 확인");
+        let summary = install::install_missing(backend.clone(), stack.as_ref(), req.target_os, &rep.0).await;
+        if summary.total == 0 {
+            rep.log("필요한 도구가 모두 준비되어 있습니다.");
+        } else {
+            if !summary.done.is_empty() {
+                rep.log(format!("설치 완료: {}", summary.done.join(", ")));
+            }
+            if !summary.failed.is_empty() {
+                rep.warn(format!("설치 실패: {} → 아래 명령으로 직접 설치하지 않으면 빌드가 실패합니다.", summary.failed.join(", ")));
+            }
+            if !summary.skipped.is_empty() {
+                rep.warn(format!("건너뜀(수동 설치 필요): {}", summary.skipped.join(", ")));
+            }
+        }
+    }
 
     // WSL + Windows-target stack: connect the Windows toolchain (cargo.exe, npm.cmd, ...) before scaffolding
     // so the scaffold command and the agent both use the Windows tools.

@@ -1,15 +1,11 @@
-// Quick mode, second screen: what the agent decided, plus install status of what the stack needs.
+// Quick mode, second screen: what the agent decided, and what creation will install automatically.
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Download, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ipc, type StackInfo } from "@/lib/ipc";
-import { useAppStore } from "@/stores/app";
 import { useWizardStore } from "@/stores/wizard";
-import { installCommand } from "@/features/terminal/commands";
-import { openTerminalWith } from "@/stores/terminal";
+import { plannedInstalls } from "../install";
 import { projectTypeLabel, targetOsLabel } from "../labels";
-import { ToolchainStatus } from "../ToolchainStatus";
 import { joinPath } from "../validation";
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -24,10 +20,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 export function PlanSummary() {
   const plan = useWizardStore((s) => s.plan);
   const form = useWizardStore((s) => s.form);
-  const refreshPlanTools = useWizardStore((s) => s.refreshPlanTools);
-  const backend = useAppStore((s) => s.settings?.backend.kind ?? "native");
   const [stack, setStack] = useState<StackInfo | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!plan?.stack_id) {
@@ -45,17 +38,8 @@ export function PlanSummary() {
   }, [plan?.stack_id]);
 
   const fullPath = useMemo(() => (plan ? joinPath(form.parentDir, plan.dir_name) : ""), [plan, form.parentDir]);
+  const installs = useMemo(() => (plan ? plannedInstalls(plan.windows_toolchain, plan.missing_tools) : { auto: [], manual: [], hasWindows: false }), [plan]);
   if (!plan) return null;
-
-  const refresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshPlanTools();
-    } finally {
-      setRefreshing(false);
-    }
-  };
-  const allReady = plan.missing_tools.length === 0 && plan.windows_toolchain.every((t) => t.found);
 
   return (
     <div className="grid gap-4">
@@ -98,42 +82,33 @@ export function PlanSummary() {
         </div>
       </div>
 
-      {allReady ? (
+      {installs.auto.length === 0 && installs.manual.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
           <CheckCircle2 className="size-4" /> 필요한 도구가 모두 준비되어 있습니다. 바로 만들 수 있습니다.
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
-          아래 도구가 없어도 프로젝트는 만들 수 있지만, 설치 전에는 빌드나 실행이 실패합니다. 설치 후 "다시 확인"을 누르세요.
-        </p>
-      )}
-
-      {plan.missing_tools.length > 0 && (
-        <div className="rounded-lg border">
-          <div className="border-b px-3 py-2 text-sm font-medium">설치가 필요한 도구</div>
-          <ul className="divide-y text-sm">
-            {plan.missing_tools.map((t) => (
-              <li key={t.name} className="flex items-center gap-2 px-3 py-1.5">
-                <span className="min-w-0 flex-1 font-mono text-xs">{t.name}</span>
-                {t.install_hint ? (
-                  <Button size="sm" variant="outline" className="h-7 text-xs" title={t.install_hint} onClick={() => openTerminalWith(installCommand(t.install_hint!, backend, `${t.name} 설치`), null)}>
-                    <Download className="size-3.5" /> 터미널에서 설치
-                  </Button>
-                ) : (
-                  <span className="text-xs text-muted-foreground">수동 설치 필요</span>
-                )}
-              </li>
-            ))}
-          </ul>
-          <div className="flex justify-end border-t px-3 py-1.5">
-            <Button variant="ghost" size="sm" onClick={refresh} disabled={refreshing}>
-              다시 확인
-            </Button>
-          </div>
+        <div className="grid gap-2">
+          {installs.auto.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="plan-auto-install">
+              <Download className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="grid gap-0.5">
+                <div>
+                  만들 때 자동으로 설치합니다: <span className="font-medium">{installs.auto.join(", ")}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {installs.hasWindows ? "Windows 설치 프로그램이 관리자 권한을 요청하면 허용하세요. " : ""}
+                  다운로드 용량에 따라 몇 분 걸릴 수 있고, 진행 상황은 프로그레스 바로 표시됩니다.
+                </p>
+              </div>
+            </div>
+          )}
+          {installs.manual.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              직접 설치해야 하는 도구: <span className="font-medium">{installs.manual.join(", ")}</span> (프로젝트는 먼저 만들어지고, 설치 전에는 빌드가 실패합니다)
+            </p>
+          )}
         </div>
       )}
-
-      {plan.windows_toolchain.length > 0 && <ToolchainStatus statuses={plan.windows_toolchain} onRefresh={refresh} refreshing={refreshing} />}
     </div>
   );
 }

@@ -86,6 +86,17 @@ export function StepOptions() {
       </section>
 
       <section className="grid gap-2">
+        <h3 className="text-sm font-medium">도구</h3>
+        <SwitchRow
+          id="opt-install"
+          label="필요한 도구 자동 설치"
+          description="스택에 필요한데 없는 도구를 만들기 전에 설치합니다 (Windows용 툴체인은 winget, WSL 쪽은 apt·설치 스크립트). 진행 상황은 생성 화면에 표시됩니다."
+          checked={form.installTools}
+          onChange={(v) => setField("installTools", v)}
+        />
+      </section>
+
+      <section className="grid gap-2">
         <h3 className="text-sm font-medium">에이전트</h3>
         <SwitchRow id="opt-docs" label="CLAUDE.md / AGENTS.md 생성" description="스택, 빌드 명령, 설명을 담은 지침 파일을 만들어 두 에이전트가 함께 씁니다." checked={form.generateDocs} onChange={(v) => setField("generateDocs", v)} />
         <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">

@@ -4,4 +4,5 @@ pub mod agent_docs;
 pub mod ai_plan;
 pub mod ai_recommend;
 pub mod catalog;
+pub mod install;
 pub mod scaffold;

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use futures::future::join_all;
 
-use crate::backend::{CommandSpec, ExecBackend};
+use crate::backend::{process, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
 use crate::types::{AuthStatus, BackendKind, ModelInfo, Provider, ToolStatus};
 
@@ -61,6 +61,39 @@ fn install_hint(name: &str, kind: BackendKind) -> Option<String> {
         _ => return None,
     };
     Some(s.to_string())
+}
+
+/// Install hints that are commands rather than "see this page" notes (flutter).
+pub fn runnable_hint(hint: &str) -> bool {
+    let h = hint.trim();
+    !h.is_empty() && !h.starts_with("http://") && !h.starts_with("https://")
+}
+
+/// `sudo` works without a password (the managed distro's user has NOPASSWD; a personal distro may not).
+pub async fn sudo_available(backend: &Arc<dyn ExecBackend>) -> bool {
+    if backend.kind() != BackendKind::Wsl {
+        return true;
+    }
+    let spec = backend.shell("sudo -n true", None);
+    matches!(tokio::time::timeout(Duration::from_secs(10), backend.run(&spec)).await, Ok(Ok(out)) if out.success())
+}
+
+/// Install hint rewritten so it can never wait for input: apt stays non-interactive and `sudo -n`
+/// fails instead of prompting when a password would be needed.
+pub fn noninteractive_script(hint: &str, kind: BackendKind) -> String {
+    match kind {
+        BackendKind::Wsl => format!("export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a CI=1 NO_COLOR=1; {}", hint.replace("sudo ", "sudo -n ")),
+        BackendKind::Native => hint.to_string(),
+    }
+}
+
+/// Run an install hint on the backend, streaming output lines. Resolves with the exit code.
+pub async fn install(backend: &Arc<dyn ExecBackend>, hint: &str, on_line: impl FnMut(String, bool)) -> Result<Option<i32>> {
+    let spec = backend.shell(&noninteractive_script(hint, backend.kind()), None);
+    let mut cmd = backend.command(&spec);
+    cmd.env("CI", "1").env("NO_COLOR", "1");
+    let status = process::stream_lines(&mut cmd, on_line).await?;
+    Ok(status.code())
 }
 
 /// In WSL the Windows PATH is usually appended, so `command -v npm` can resolve to the Windows node
@@ -158,6 +191,17 @@ mod tests {
         assert!(!is_windows_side_path(BackendKind::Wsl, "/home/me/.local/bin/claude"));
         assert!(!is_windows_side_path(BackendKind::Wsl, "/mnt/wsl/x"));
         assert!(!is_windows_side_path(BackendKind::Native, "/mnt/c/x"));
+    }
+
+    #[test]
+    fn install_hints_run_without_prompts() {
+        assert!(runnable_hint("sudo apt install -y git"));
+        assert!(!runnable_hint("https://docs.flutter.dev/get-started/install 참고 (SDK 압축 해제 후 PATH 추가)"));
+        assert!(!runnable_hint("  "));
+        let s = noninteractive_script("curl -fsSL https://x | sudo -E bash - && sudo apt install -y nodejs", BackendKind::Wsl);
+        assert!(s.starts_with("export DEBIAN_FRONTEND=noninteractive"));
+        assert!(s.contains("| sudo -n -E bash - && sudo -n apt install -y nodejs"));
+        assert_eq!(noninteractive_script("winget install Git.Git", BackendKind::Native), "winget install Git.Git");
     }
 
     #[test]

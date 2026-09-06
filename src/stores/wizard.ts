@@ -17,6 +17,7 @@ import {
 } from "@/lib/ipc";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
+import { applyInstallEvent, type InstallItem } from "@/features/projects/install";
 import { validateDirName, validateProjectName } from "@/features/projects/validation";
 
 export const WIZARD_STEPS = ["이름 · 경로", "대상 OS", "유형", "스택", "옵션", "생성"] as const;
@@ -43,6 +44,8 @@ export interface WizardForm {
   createGithub: boolean;
   githubPrivate: boolean;
   generateDocs: boolean;
+  /** Install the stack's missing prerequisites automatically while creating. */
+  installTools: boolean;
   provider: Provider | null;
   model: string | null;
   effort: Effort | null;
@@ -55,6 +58,9 @@ export interface ScaffoldState {
   status: ScaffoldStatus;
   steps: { name: string; done: boolean }[];
   logs: { line: string; isErr: boolean }[];
+  /** Automatic tool installs reported by the backend (progress bar in StepCreate). */
+  installs: InstallItem[];
+  installTotal: number;
   project: ProjectRecord | null;
   error: string | null;
 }
@@ -84,8 +90,6 @@ interface WizardState {
   setQuickView: (view: QuickView) => void;
   /** Ask the agent for the whole configuration and copy it into the form. */
   runPlan: (provider: Provider) => Promise<ProjectPlan | null>;
-  /** Re-detect tools for the current plan (after the user installed something). */
-  refreshPlanTools: () => Promise<void>;
   setAutoStart: (status: AutoStartStatus, error?: string | null) => void;
   setField: <K extends keyof WizardForm>(key: K, value: WizardForm[K]) => void;
   goTo: (step: WizardStep) => void;
@@ -114,6 +118,7 @@ function initialForm(settings: AppSettings | null): WizardForm {
     createGithub: false,
     githubPrivate: true,
     generateDocs: true,
+    installTools: true,
     provider: settings?.default_provider ?? "claude",
     model:
       settings?.default_provider === "codex"
@@ -124,7 +129,7 @@ function initialForm(settings: AppSettings | null): WizardForm {
   };
 }
 
-const initialScaffold: ScaffoldState = { status: "idle", steps: [], logs: [], project: null, error: null };
+const initialScaffold: ScaffoldState = { status: "idle", steps: [], logs: [], installs: [], installTotal: 0, project: null, error: null };
 
 export const useWizardStore = create<WizardState>((set, get) => ({
   step: 0,
@@ -191,20 +196,6 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     } finally {
       set({ planLoading: false });
     }
-  },
-
-  refreshPlanTools: async () => {
-    const { plan } = get();
-    if (!plan) return;
-    const [tools, win] = await Promise.all([
-      ipc.tools.detect().catch(() => null),
-      plan.windows_toolchain.length ? ipc.toolchain.status(plan.stack_id ?? null).catch(() => null) : Promise.resolve(null),
-    ]);
-    set((s) => {
-      if (!s.plan) return {};
-      const missing = tools ? s.plan.missing_tools.map((m) => tools.find((t) => t.name === m.name) ?? m).filter((t) => !t.found) : s.plan.missing_tools;
-      return { tools: tools ?? s.tools, plan: { ...s.plan, missing_tools: missing, windows_toolchain: win ?? s.plan.windows_toolchain } };
-    });
   },
 
   setAutoStart: (autoStart, error = null) => set({ autoStart, autoStartError: error }),
@@ -299,6 +290,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       create_github_repo: f.gitInit && f.createGithub,
       github_private: f.githubPrivate,
       generate_agent_docs: f.generateDocs,
+      install_missing_tools: f.installTools,
       default_provider: f.provider,
       default_model: f.model,
       default_effort: f.effort,
@@ -321,6 +313,8 @@ export const useWizardStore = create<WizardState>((set, get) => ({
             };
           case "log":
             return { scaffold: { ...sc, logs: [...sc.logs, { line: e.line, isErr: e.is_err }] } };
+          case "install":
+            return { scaffold: { ...sc, installs: applyInstallEvent(sc.installs, e), installTotal: e.total } };
           case "done":
             return {
               scaffold: {

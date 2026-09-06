@@ -11,7 +11,7 @@
 //! - `fs`         read-only project file listing/reading for the explorer
 //! - `github`     GitHub REST (create repo, whoami)
 //! - `managed`    app-owned WSL distribution: WSL detection/installation, rootfs provisioning
-//! - `projects`   stack catalog, scaffolding, CLAUDE.md/AGENTS.md generation
+//! - `projects`   stack catalog, automatic prerequisite install (`projects::install`), scaffolding, CLAUDE.md/AGENTS.md generation
 //! - `db`         SQLite persistence (projects, sessions, messages, settings)
 //! - `secrets`    OS keyring wrapper
 //! - `pty`        interactive terminal sessions (login flows)

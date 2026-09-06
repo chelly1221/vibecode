@@ -33,6 +33,10 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
 - Windows child processes are spawned via `backend::process::spawn_tracked` (job object + no console window).
 - New project flow: quick mode first (`ProjectWizard` → `StepDescribe` → `projects_ai_plan` → `PlanSummary` → create → `startFirstSession`);
   the six-step wizard stays behind "바꾸기 (고급)". `crates/core/src/projects/ai_plan.rs` builds the prompt/validation.
+- Missing tools are installed automatically at the start of `projects_create` (`crates/core/src/projects/install.rs`: winget on the
+  host for Windows toolchains, install hints on the backend with `sudo -n`, never fatal). Progress streams as
+  `ScaffoldEvent::Install` → progress bar in `InstallProgress.tsx`; the summary screen only lists what will be installed.
+  `CreateProjectRequest.install_missing_tools` (advanced wizard switch) turns it off.
 - WSL building Windows programs: `crates/core/src/toolchain.rs` (detect host rust/msvc/node/dotnet/go, winget install script run
   in a host PowerShell PTY via `PtySpec.host`, `~/.local/bin` shims `cargo.exe`/`npm.cmd`/...). Stacks opt in with
   `windows_toolchain` in `stacks.toml`; scaffold commands, AGENTS.md notes and the preview dev command are rewritten to the shims.

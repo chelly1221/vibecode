@@ -138,7 +138,7 @@ export function ProjectWizard() {
             <DialogTitle>새 프로젝트</DialogTitle>
             {quick ? (
               <DialogDescription>
-                {quickView === "describe" ? "무엇을 만들지 한 줄로 적으면 AI가 이름, 폴더, 만드는 방식을 정하고 바로 만들기 시작합니다." : "구성을 확인하고 만들기를 누르세요. 만들어지면 첫 대화가 자동으로 시작됩니다."}
+                {quickView === "describe" ? "무엇을 만들지 한 줄로 적으면 AI가 이름, 폴더, 만드는 방식을 정하고 바로 만들기 시작합니다." : "구성을 확인하고 만들기를 누르세요. 없는 도구는 만들면서 자동으로 설치되고, 끝나면 첫 대화가 바로 시작됩니다."}
               </DialogDescription>
             ) : (
               <>

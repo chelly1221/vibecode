@@ -37,6 +37,7 @@ async fn create_and_open_project_via_wsl() {
         create_github_repo: false,
         github_private: true,
         generate_agent_docs: true,
+        install_missing_tools: true,
         default_provider: Some(Provider::Claude),
         default_model: None,
         default_effort: Some(Effort::High),
@@ -49,8 +50,12 @@ async fn create_and_open_project_via_wsl() {
     while let Ok(e) = rx.try_recv() {
         events.push(e);
     }
+    fn logs_contain(events: &[ScaffoldEvent], needle: &str) -> bool {
+        events.iter().any(|e| matches!(e, ScaffoldEvent::Log { line, .. } if line.contains(needle)))
+    }
     let steps: Vec<String> = events.iter().filter_map(|e| if let ScaffoldEvent::Step { name } = e { Some(name.clone()) } else { None }).collect();
-    assert_eq!(steps, vec!["검증", "스캐폴딩", "에이전트 문서 생성", "git 초기화", "완료"]);
+    assert_eq!(steps, vec!["검증", "필요한 도구 확인", "스캐폴딩", "에이전트 문서 생성", "git 초기화", "완료"]);
+    assert!(logs_contain(&events, "필요한 도구가 모두 준비되어 있습니다"), "install check should find nothing to install for the powershell stack");
     assert!(matches!(events.last(), Some(ScaffoldEvent::Done { .. })));
     let logs: Vec<String> = events.iter().filter_map(|e| if let ScaffoldEvent::Log { line, .. } = e { Some(line.clone()) } else { None }).collect();
     assert!(logs.iter().any(|l| l.contains("git init")), "logs: {logs:?}");
@@ -84,6 +89,7 @@ async fn create_and_open_project_via_wsl() {
         create_github_repo: false,
         github_private: false,
         generate_agent_docs: false,
+        install_missing_tools: false,
         default_provider: None,
         default_model: None,
         default_effort: None,

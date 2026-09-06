@@ -374,6 +374,10 @@ pub struct CreateProjectRequest {
     pub create_github_repo: bool,
     pub github_private: bool,
     pub generate_agent_docs: bool,
+    /// Install missing prerequisites before scaffolding: Windows toolchains with winget on the host,
+    /// backend-side tools with their install hints. Progress arrives as `ScaffoldEvent::Install`.
+    #[serde(default = "default_true")]
+    pub install_missing_tools: bool,
     #[ts(optional = nullable)]
     pub default_provider: Option<Provider>,
     #[ts(optional = nullable)]
@@ -390,8 +394,46 @@ pub struct CreateProjectRequest {
 pub enum ScaffoldEvent {
     Step { name: String },
     Log { line: String, is_err: bool },
+    /// Progress of one automatic tool install; `index`/`total` drive the wizard's progress bar.
+    Install {
+        /// Tool name (toolchain: rust, msvc, node …; backend tool: uv, python, npm …).
+        name: String,
+        label: String,
+        kind: InstallKind,
+        /// 1-based position in this creation's install list.
+        index: u32,
+        total: u32,
+        status: InstallStatus,
+        /// Version after a successful install, or why it failed / was skipped.
+        message: Option<String>,
+        /// Command that was (or should be) run, for a manual retry in a terminal.
+        command: Option<String>,
+    },
     Done { project: ProjectRecord },
     Failed { message: String },
+}
+
+/// Where an automatically installed tool lives.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallKind {
+    /// Windows-side toolchain installed with winget on the host (rust, msvc, node, dotnet, go).
+    WindowsToolchain,
+    /// Backend-side prerequisite installed with its install hint (apt / `curl | sh` in WSL, winget natively).
+    BackendTool,
+}
+
+/// Outcome of one automatic install.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallStatus {
+    Running,
+    Done,
+    Failed,
+    /// Not attempted: needs a password or a manual download.
+    Skipped,
 }
 
 // ---------------------------------------------------------------------------

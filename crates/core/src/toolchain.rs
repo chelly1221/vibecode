@@ -13,7 +13,7 @@ use std::time::Duration;
 use futures::future::join_all;
 use serde_json::Value;
 
-use crate::backend::process::spawn_tracked;
+use crate::backend::process::{self, spawn_tracked};
 use crate::backend::{paths, sh_quote, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
 use crate::types::{BackendKind, StackInfo, TargetOs, WindowsToolStatus};
@@ -237,26 +237,62 @@ pub async fn detect(names: &[String]) -> Vec<WindowsToolStatus> {
     join_all(tools.into_iter().map(detect_one)).await
 }
 
+const WINGET_CHECK: &str = "if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Write-Host 'winget을 찾을 수 없습니다. Microsoft Store에서 \"앱 설치 관리자\"를 업데이트하세요.' -ForegroundColor Red; exit 9009 }\n";
+
+/// `winget install …` line for one toolchain (what the user sees / can paste into a terminal).
+pub fn winget_command(t: &WinTool) -> String {
+    let mut s = format!("winget install -e --id {} --accept-source-agreements --accept-package-agreements --disable-interactivity", t.winget_id);
+    for a in t.winget_extra {
+        s.push(' ');
+        s.push_str(&ps_quote(a));
+    }
+    s
+}
+
+/// PowerShell lines installing one toolchain (Build Tools fall back to adding the C++ workload).
+fn install_lines(t: &WinTool) -> String {
+    let mut s = winget_command(t);
+    s.push('\n');
+    if t.name == "msvc" {
+        s.push_str("if ($LASTEXITCODE -ne 0) { Write-Host 'Build Tools가 이미 있으면 C++ 워크로드만 추가합니다.' ; & \"${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\Installer\\setup.exe\" modify --productId Microsoft.VisualStudio.Product.BuildTools --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --quiet --wait --norestart }\n");
+    }
+    s
+}
+
 /// PowerShell script (run on the host, elevated by winget itself when needed) installing `names`.
 pub fn install_script(names: &[String]) -> String {
     let mut s = String::from("$ErrorActionPreference = 'Continue'\n");
-    s.push_str("if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Write-Host 'winget을 찾을 수 없습니다. Microsoft Store에서 \"앱 설치 관리자\"를 업데이트하세요.' -ForegroundColor Red; exit 1 }\n");
+    s.push_str(WINGET_CHECK);
     let tools: Vec<&WinTool> = names.iter().filter_map(|n| get(n)).collect();
     let total = tools.len();
     for (i, t) in tools.iter().enumerate() {
         s.push_str(&format!("Write-Host '[{}/{}] {} 설치 (winget {})' -ForegroundColor Cyan\n", i + 1, total, t.label, t.winget_id));
-        s.push_str(&format!("winget install -e --id {} --accept-source-agreements --accept-package-agreements --disable-interactivity", t.winget_id));
-        for a in t.winget_extra {
-            s.push(' ');
-            s.push_str(&ps_quote(a));
-        }
-        s.push('\n');
-        if t.name == "msvc" {
-            s.push_str("if ($LASTEXITCODE -ne 0) { Write-Host 'Build Tools가 이미 있으면 C++ 워크로드만 추가합니다.' ; & \"${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\Installer\\setup.exe\" modify --productId Microsoft.VisualStudio.Product.BuildTools --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --quiet --wait --norestart }\n");
-        }
+        s.push_str(&install_lines(t));
     }
-    s.push_str("Write-Host ''\nWrite-Host '설치가 끝났습니다. Vibecoder에서 \"다시 확인\"을 누르세요. 프로젝트를 만들 때 WSL 연결(shim)이 자동으로 갱신됩니다.' -ForegroundColor Green\n");
+    s.push_str("Write-Host ''\nWrite-Host '설치가 끝났습니다. 프로젝트를 만들 때 WSL 연결(shim)이 자동으로 갱신됩니다.' -ForegroundColor Green\n");
     s
+}
+
+/// Install one toolchain on the host with winget, streaming its output. Resolves with the exit code
+/// (winget may pop a UAC prompt for machine-wide installers; cancelling it makes winget fail).
+pub async fn install_one(tool: &WinTool, on_line: impl FnMut(String, bool)) -> Result<Option<i32>> {
+    if !cfg!(windows) {
+        return Err(CoreError::msg("Windows 툴체인 설치는 Windows 호스트에서만 가능합니다"));
+    }
+    // UTF-8 both ways so winget's and our Korean messages survive the pipe.
+    let mut script = String::from("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8\n$ErrorActionPreference = 'Continue'\n");
+    script.push_str(WINGET_CHECK);
+    script.push_str(&install_lines(tool));
+    script.push_str("exit $LASTEXITCODE\n");
+    let mut cmd = tokio::process::Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+    let status = process::stream_lines(&mut cmd, on_line).await?;
+    Ok(status.code())
+}
+
+/// Exit codes after which the package is installed (0, or the Windows Installer "reboot required" code).
+pub fn install_exit_ok(code: Option<i32>) -> bool {
+    matches!(code, Some(0) | Some(3010))
 }
 
 fn ps_quote(s: &str) -> String {
@@ -455,6 +491,10 @@ mod tests {
         assert!(s.contains("Microsoft.VisualStudio.2022.BuildTools"));
         assert!(s.contains("Microsoft.VisualStudio.Workload.VCTools"));
         assert!(s.contains("[2/2]"));
+        let one = winget_command(get("msvc").unwrap());
+        assert!(one.starts_with("winget install -e --id Microsoft.VisualStudio.2022.BuildTools"));
+        assert!(one.contains("'--override'"));
+        assert!(install_exit_ok(Some(0)) && install_exit_ok(Some(3010)) && !install_exit_ok(Some(1)) && !install_exit_ok(None));
     }
 
     #[test]

@@ -2,6 +2,7 @@ import { CheckCircle2, Loader2, MessageSquarePlus, RotateCcw, XCircle } from "lu
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useWizardStore } from "@/stores/wizard";
+import { InstallProgress } from "../InstallProgress";
 import { ScaffoldLog } from "../ScaffoldLog";
 
 interface StepCreateProps {
@@ -45,6 +46,7 @@ export function StepCreate({ onStartSession, onClose }: StepCreateProps) {
           <AlertDescription className="break-all whitespace-pre-wrap text-xs">{autoStartError ?? ""}</AlertDescription>
         </Alert>
       )}
+      <InstallProgress scaffold={scaffold} />
       <ScaffoldLog scaffold={scaffold} />
       {scaffold.status !== "running" && autoStart !== "starting" && (
         <div className="flex justify-end gap-2">
