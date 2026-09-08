@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ExternalLink,
+  Folder,
   FolderOpen,
+  House,
   MoreHorizontal,
   Plus,
   Trash2,
@@ -31,7 +33,7 @@ import { formatRelative } from "./format";
 
 function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void; onAccounts: () => void }) {
   return (
-    <li className="group/project relative">
+    <div className="group/project relative">
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -39,19 +41,18 @@ function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { pr
             aria-current={selected ? "page" : undefined}
             onClick={onSelect}
             className={cn(
-              "flex w-full flex-col gap-1 rounded-xl px-3 py-3 text-left text-sm hover:bg-sidebar-accent",
+              "flex h-8 w-full min-w-0 items-center gap-2 rounded-lg pr-8 pl-2 text-left text-[13px] transition-colors hover:bg-sidebar-accent",
               selected && "bg-primary/10 text-sidebar-accent-foreground ring-1 ring-inset ring-primary/20",
             )}
           >
-            <span className="flex items-center gap-1.5 pr-6">
-              <span className="truncate font-medium">{project.name}</span>
-
-            </span>
-            <span className="truncate text-[11px] text-muted-foreground">{formatRelative(project.last_opened_at)}</span>
+            {selected ? <FolderOpen className="size-3.5 shrink-0 text-primary" aria-hidden="true" /> : <Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+            <span className="min-w-0 truncate font-medium">{project.name}</span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" className="max-w-xs font-mono text-xs break-all">
-          {project.path}
+        <TooltipContent side="right" sideOffset={8} className="max-w-xs flex-col items-start gap-1">
+          <span className="font-medium break-all">{project.name}</span>
+          <span className="font-mono text-[11px] break-all opacity-75">{project.path}</span>
+          <span className="text-[11px] opacity-75">최근 열기 · {formatRelative(project.last_opened_at)}</span>
         </TooltipContent>
       </Tooltip>
       <DropdownMenu>
@@ -59,8 +60,8 @@ function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { pr
           <Button
             size="icon-xs"
             variant="ghost"
-            className="absolute top-1.5 right-1 opacity-60 group-hover/project:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-            aria-label="프로젝트 메뉴"
+            className="absolute top-1 right-1 text-muted-foreground opacity-60 group-hover/project:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+            aria-label={`${project.name} 프로젝트 메뉴`}
           >
             <MoreHorizontal />
           </Button>
@@ -81,11 +82,11 @@ function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { pr
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </li>
+    </div>
   );
 }
 
-/** Left sidebar: projects, their sessions, and panel toggles. */
+/** Compact project navigation and the selected project's sessions. */
 export function ProjectSidebar() {
   const projects = useAppStore((s) => s.projects);
   const activeProjectId = useAppStore((s) => s.activeProjectId);
@@ -144,32 +145,33 @@ export function ProjectSidebar() {
   };
 
   return (
-    <aside data-drop-zone="projects" className={cn("flex h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground", dropping && "ring-2 ring-inset ring-primary/60")}>
-      <div className="space-y-3 border-b p-3">
-        <button type="button" onClick={() => selectProject(null)} className="w-full rounded-lg px-2 py-2 text-left text-sm font-semibold hover:bg-sidebar-accent">내 작업 공간</button>
-        <Button className="w-full justify-start" onClick={() => setWizardOpen(true)}><Plus /> 새로 만들기</Button>
-        <Button variant="outline" className="w-full justify-start" onClick={openExisting}><FolderOpen /> 기존 폴더 열기</Button>
+    <aside aria-label="프로젝트 탐색" data-drop-zone="projects" className={cn("flex h-full w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground", dropping && "ring-2 ring-inset ring-primary/60")}>
+      <div className="grid grid-cols-2 gap-1.5 border-b p-2">
+        <Button size="sm" className="h-8 px-2" onClick={() => setWizardOpen(true)}><Plus /> 새 프로젝트</Button>
+        <Button size="sm" variant="outline" className="h-8 px-2" onClick={openExisting}><FolderOpen /> 폴더 열기</Button>
       </div>
-      <div className="flex items-center justify-between px-4 py-3"><span className="text-xs font-medium text-muted-foreground">내 프로젝트</span><span className="text-xs text-muted-foreground">{projects.length}</span></div>
+      <div className="flex h-8 shrink-0 items-center justify-between pr-2 pl-3">
+        <h2 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">프로젝트 <span className="tabular-nums opacity-70">{projects.length}</span></h2>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="icon-xs" variant="ghost" aria-label="시작 화면" aria-pressed={activeProjectId === null} className={cn("text-muted-foreground", activeProjectId === null && "text-primary")} onClick={() => selectProject(null)}><House /></Button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>시작 화면</TooltipContent>
+        </Tooltip>
+      </div>
 
-      <ScrollArea className="min-h-0 flex-1 px-2">
+      {/* Keep long names inside the viewport instead of widening Radix's table wrapper. */}
+      <ScrollArea className="min-h-0 flex-1 px-2 [&_[data-slot=scroll-area-viewport]>div]:block!">
         {projects.length === 0 ? (
-          <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-            <p>프로젝트가 없습니다.</p>
-            <p className="text-xs text-muted-foreground">이 앱으로 만들지 않은 폴더도 등록할 수 있습니다. 폴더를 여기에 끌어다 놓아도 됩니다.</p>
-            <div className="mt-3 flex flex-col gap-1.5">
-              <Button size="sm" onClick={() => setWizardOpen(true)}>
-                <Plus /> 새 프로젝트
-              </Button>
-              <Button size="sm" variant="outline" onClick={openExisting}>
-                <FolderOpen /> 기존 폴더 등록
-              </Button>
-            </div>
+          <div className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
+            <FolderOpen className="mx-auto mb-2 size-5 opacity-60" aria-hidden="true" />
+            <p>등록된 프로젝트가 없어요.</p>
+            <p className="mt-1 text-[11px] leading-relaxed">위에서 만들거나 폴더를 여기에 놓아 주세요.</p>
           </div>
         ) : (
-          <ul className="space-y-0.5 pb-2">
+          <ul aria-label="프로젝트 목록" className="space-y-0.5 pb-2">
             {projects.map((p) => (
-              <div key={p.id}>
+              <li key={p.id} className="min-w-0">
                 <ProjectItem
                   project={p}
                   selected={p.id === activeProjectId}
@@ -178,7 +180,7 @@ export function ProjectSidebar() {
                   onAccounts={() => setAccountProject(p)}
                 />
                 {p.id === activeProjectId && <SessionList projectId={p.id} />}
-              </div>
+              </li>
             ))}
           </ul>
         )}

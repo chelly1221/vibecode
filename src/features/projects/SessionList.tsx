@@ -11,13 +11,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ipc, type SessionRecord } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ProviderBadge } from "./ProviderBadge";
 import { formatRelative } from "./format";
-import { effortLabel } from "./labels";
+import { effortLabel, PROVIDER_LABEL } from "./labels";
 import { exportFileName, filterSessions } from "./sessionFilter";
 
 function shortModel(model: string | null | undefined): string | null {
@@ -92,9 +93,9 @@ export function SessionList({ projectId }: { projectId: string }) {
   };
 
   return (
-    <div className="mt-1 ml-3 border-l pl-2">
-      <div className="flex items-center justify-between py-1 pr-1">
-        <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">대화</span>
+    <div className="my-0.5 ml-3 border-l border-primary/15 pl-1">
+      <div className="flex h-7 items-center justify-between pr-1 pl-1.5">
+        <span className="text-[11px] text-muted-foreground">대화{sessions && sessions.length > 0 && <span className="ml-1 tabular-nums opacity-70">{visible.length}</span>}</span>
         <Button size="xs" variant="ghost" onClick={() => setNewSessionOpen(true)} title="새 대화">
           <Plus /> 새 대화
         </Button>
@@ -102,15 +103,16 @@ export function SessionList({ projectId }: { projectId: string }) {
       {(sessions?.length ?? 0) > 3 && (
         <div className="relative mb-1 pr-1">
           <Search className="pointer-events-none absolute top-1/2 left-1.5 size-3 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="대화 검색" className="h-6 pl-6 text-[11px]" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="대화 검색" aria-label="대화 검색" className="h-6 pl-6 text-[11px]" />
         </div>
       )}
       {!sessions || sessions.length === 0 ? (
-        <p className="px-1 pb-2 text-xs text-muted-foreground">아직 대화이 없습니다.</p>
+        <p className="px-1.5 pb-1.5 text-[11px] text-muted-foreground">{!sessions ? "대화를 불러오는 중…" : "아직 대화가 없습니다."}</p>
       ) : (
         <ul className="space-y-0.5 pb-1">
           {visible.map((s) => {
             const model = shortModel(s.model);
+            const details = [model, s.effort ? effortLabel(s.effort) : null].filter(Boolean).join(" · ");
             const isRenaming = renaming?.id === s.id;
             return (
               <li key={s.id} className="group/session relative">
@@ -127,27 +129,36 @@ export function SessionList({ projectId }: { projectId: string }) {
                     className="my-0.5 h-7 text-xs"
                   />
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => selectSession(s.id)}
-                    onDoubleClick={() => setRenaming({ id: s.id, title: s.title })}
-                    className={cn(
-                      "flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-left text-xs hover:bg-sidebar-accent",
-                      activeSessionId === s.id && "bg-sidebar-accent text-sidebar-accent-foreground",
-                      s.archived && "opacity-60",
-                    )}
-                  >
-                    <ProviderBadge provider={s.provider} className="mt-0.5 size-4 text-[10px]" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{s.title || "제목 없음"}</span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
-                        {s.archived && <span className="rounded bg-muted px-1">보관됨</span>}
-                        {model && <span className="rounded bg-muted px-1 font-mono">{model}</span>}
-                        {s.effort && <span className="rounded bg-muted px-1">{effortLabel(s.effort)}</span>}
-                        <span>{formatRelative(s.last_used_at)}</span>
-                      </span>
-                    </span>
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-current={activeSessionId === s.id ? "page" : undefined}
+                        onClick={() => selectSession(s.id)}
+                        onDoubleClick={() => setRenaming({ id: s.id, title: s.title })}
+                        className={cn(
+                          "flex h-9 w-full min-w-0 items-center gap-1.5 rounded-md py-1 pr-7 pl-1.5 text-left text-xs transition-colors hover:bg-sidebar-accent",
+                          activeSessionId === s.id && "bg-primary/10 text-sidebar-accent-foreground ring-1 ring-inset ring-primary/20",
+                          s.archived && "opacity-60",
+                        )}
+                      >
+                        <ProviderBadge provider={s.provider} className="size-3.5 rounded-sm text-[9px]" />
+                        {s.archived && <Archive className="size-3 shrink-0 text-muted-foreground" aria-label="보관된 대화" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium leading-4">{s.title || "제목 없음"}</span>
+                          <span className="flex items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
+                            <span className="min-w-0 flex-1 truncate">{details || PROVIDER_LABEL[s.provider]}</span>
+                            <span className="shrink-0">{formatRelative(s.last_used_at)}</span>
+                          </span>
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" sideOffset={8} className="max-w-xs flex-col items-start gap-1">
+                      <span className="font-medium break-all">{s.title || "제목 없음"}</span>
+                      <span className="text-[11px] break-all opacity-75">{PROVIDER_LABEL[s.provider]}{details && ` · ${details}`}</span>
+                      <span className="text-[11px] opacity-75">{s.archived && "보관됨 · "}{formatRelative(s.last_used_at)}</span>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
                 {!isRenaming && (
                   <DropdownMenu>
@@ -155,8 +166,8 @@ export function SessionList({ projectId }: { projectId: string }) {
                       <Button
                         size="icon-xs"
                         variant="ghost"
-                        className="absolute top-1 right-1 opacity-60 group-hover/session:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-                        aria-label="대화 메뉴"
+                        className="absolute top-1.5 right-0.5 text-muted-foreground opacity-60 group-hover/session:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                        aria-label={`${s.title || "제목 없음"} 대화 메뉴`}
                       >
                         <MoreHorizontal />
                       </Button>
@@ -189,7 +200,7 @@ export function SessionList({ projectId }: { projectId: string }) {
               </li>
             );
           })}
-          {visible.length === 0 && <li className="px-1 pb-1 text-xs text-muted-foreground">일치하는 대화이 없습니다.</li>}
+          {visible.length === 0 && <li className="px-1 pb-1 text-xs text-muted-foreground">일치하는 대화가 없습니다.</li>}
         </ul>
       )}
       {archivedCount > 0 && (
