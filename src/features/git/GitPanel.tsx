@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, CloudDownload, GitBranch, Loader2, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, CloudDownload, GitBranch, Loader2, RotateCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -80,7 +80,7 @@ export function GitPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground">
         <GitBranch className="size-6" />
-        프로젝트를 선택하면 git 상태가 표시됩니다.
+        프로젝트를 선택하면 변경 내역을 확인할 수 있어요.
       </div>
     );
   }
@@ -89,8 +89,8 @@ export function GitPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground">
         <GitBranch className="size-6" />
-        <p>이 폴더는 git 저장소가 아닙니다.</p>
-        <p>저장소를 만들면 변경 내역 추적, 체크포인트, GitHub 푸시를 쓸 수 있습니다.</p>
+        <p>이 프로젝트는 아직 변경 기록을 사용하지 않아요.</p>
+        <p>변경 기록을 시작하면 수정한 내용을 버전으로 저장하고 이전 상태를 확인할 수 있어요.</p>
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -98,13 +98,13 @@ export function GitPanel() {
               ipc.git
                 .init(activeProjectId!)
                 .then(() => {
-                  toast.success("git 저장소를 만들었습니다 (main)");
+                  toast.success("변경 기록을 시작했습니다");
                   return refresh();
                 })
-                .catch((e) => toast.error("git init 실패", { description: String(e) }))
+                .catch((e) => toast.error("변경 기록을 시작하지 못했어요", { description: String(e) }))
             }
           >
-            <GitBranch /> git 저장소 만들기
+            <GitBranch /> 변경 기록 시작하기
           </Button>
           <Button size="sm" variant="outline" onClick={() => void refresh()}>
             <RotateCw /> 다시 확인
@@ -116,8 +116,9 @@ export function GitPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center gap-1 border-b px-2 py-1.5">
-        <BranchMenu />
+      <div className="flex items-center justify-between border-b px-3 py-2"><h2 className="text-sm font-semibold">변경 내역</h2><Button size="icon-sm" variant="ghost" aria-label="변경 내역 닫기" onClick={() => useAppStore.getState().setGitPanelOpen(false)}><X /></Button></div>
+      <header className="flex flex-wrap items-center gap-1 border-b px-2 py-1.5">
+        <BranchMenu key={activeProjectId} />
         {status && (status.ahead > 0 || status.behind > 0) && (
           <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
             {status.ahead > 0 && (
@@ -133,9 +134,9 @@ export function GitPanel() {
           </span>
         )}
         <div className="ml-auto flex items-center">
-          <ActionButton label="fetch" name="fetch" icon={<CloudDownload />} onRun={fetch} />
-          <ActionButton label="pull" name="pull" icon={<ArrowDown />} onRun={pull} />
-          <ActionButton label="push" name="push" icon={<ArrowUp />} onRun={push} />
+          <ActionButton label="온라인 변경 확인" name="fetch" icon={<CloudDownload />} onRun={fetch} />
+          <ActionButton label="온라인 변경 가져오기" name="pull" icon={<ArrowDown />} onRun={pull} />
+          <ActionButton label="온라인에 올리기" name="push" icon={<ArrowUp />} onRun={push} />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button size="icon-sm" variant="ghost" onClick={() => void refresh()} aria-label="새로고침">
@@ -147,7 +148,7 @@ export function GitPanel() {
         </div>
       </header>
 
-      {error && <div className="border-b bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{error}</div>}
+      {error && <div role="alert" className="border-b bg-destructive/10 p-3 text-xs text-destructive"><p>변경 기록 작업을 완료하지 못했어요. 설치 상태나 연결을 확인하고 다시 시도해 주세요.</p><details className="mt-2"><summary className="cursor-pointer">오류 자세히 보기</summary><pre className="mt-2 whitespace-pre-wrap break-all">{error}</pre></details></div>}
 
       <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-0">
         <TabsList variant="line" className="mx-2 mt-1 w-auto justify-start">
@@ -169,7 +170,7 @@ export function GitPanel() {
               <DiffViewer />
             </ResizablePanel>
           </ResizablePanelGroup>
-          <CommitBox provider={provider} />
+          <CommitBox key={activeProjectId} provider={provider} />
         </TabsContent>
         <TabsContent value="log" className="min-h-0 flex-1">
           <ScrollArea className="h-full">

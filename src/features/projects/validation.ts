@@ -1,8 +1,8 @@
 // Pure helpers for the project wizard: name validation and path composition.
 
-const INVALID_NAME_CHARS = /[\\/:*?"<>|]/;
+const INVALID_NAME_CHARS = /[\x00-\x1f\x7f\\/:*?"<>|]/;
 // Windows reserved device names cannot be used as file names.
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 
 /** Display name: any characters (Korean included) except path separators / reserved ones. */
 export function validateProjectName(name: string): string | null {

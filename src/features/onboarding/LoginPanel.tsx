@@ -11,12 +11,13 @@ import { codeLooksValid, initialLogin, loginHint, reduceLogin, type LoginState }
 
 interface Props {
   provider: Provider;
+  accountId: string;
   /** Called when the CLI exited (logged in or not) so the caller can refresh the status. */
   onFinished: (loggedIn: boolean) => void;
   onClose: () => void;
 }
 
-export function LoginPanel({ provider, onFinished, onClose }: Props) {
+export function LoginPanel({ provider, accountId, onFinished, onClose }: Props) {
   const [state, setState] = useState<LoginState>(initialLogin);
   const [code, setCode] = useState("");
   const [sending, setSending] = useState(false);
@@ -26,9 +27,14 @@ export function LoginPanel({ provider, onFinished, onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    finishedRef.current = false;
     let id: string | null = null;
     (async () => {
       try {
+        // StrictMode replays mount effects. Start only after its synchronous cleanup,
+        // so one click cannot launch two competing native login processes.
+        await Promise.resolve();
+        if (cancelled) return;
         id = await ipc.tools.loginStart(provider, (e) => {
           if (cancelled) return;
           setState((s) => reduceLogin(s, e));
@@ -36,9 +42,14 @@ export function LoginPanel({ provider, onFinished, onClose }: Props) {
             finishedRef.current = true;
             onFinished(e.logged_in);
           }
-        });
-        if (!cancelled) setState((s) => ({ ...s, loginId: id }));
+        }, accountId);
+        if (cancelled) {
+          await ipc.tools.loginCancel(id).catch(() => {});
+          return;
+        }
+        setState((s) => ({ ...s, loginId: id }));
       } catch (e) {
+        if (cancelled) return;
         toast.error("로그인을 시작하지 못했습니다", { description: String(e) });
         onClose();
       }
@@ -49,7 +60,7 @@ export function LoginPanel({ provider, onFinished, onClose }: Props) {
       if (id && !finishedRef.current) ipc.tools.loginCancel(id).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider]);
+  }, [provider, accountId]);
 
   const submit = useCallback(async () => {
     const id = stateRef.current.loginId;

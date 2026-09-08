@@ -4,7 +4,7 @@ import type { Provider } from "./Provider";
 /**
  * "Describe it in one line" project creation: the agent picks everything.
  */
-export type ProjectPlanRequest = { description: string, 
+export type ProjectPlanRequest = { account_id?: string | null, description: string, 
 /**
  * Windows path the project will be created in (used to pick a free folder name). Empty = skip the check.
  */

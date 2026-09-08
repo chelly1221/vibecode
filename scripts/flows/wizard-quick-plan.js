@@ -7,7 +7,7 @@ vc.setValue(ta, window.__desc);
 const parent = document.getElementById("wz-parent-quick");
 vc.setValue(parent, window.__parent);
 await vc.sleep(300);
-const go = await vc.waitFor(() => [...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent.includes("AI가 구성하기") && !b.disabled), 5000);
+const go = await vc.waitFor(() => [...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent.includes("만드는 방법 제안받기") && !b.disabled), 5000);
 vc.click(go);
 await vc.waitFor(() => [...document.querySelectorAll("[role=dialog] button")].some((b) => b.textContent.includes("이대로 만들기")) || document.body.innerText.includes("AI가 구성을 정하지 못했습니다"), 180000, 1000);
 return document.querySelector("[role=dialog]").innerText;

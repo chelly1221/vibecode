@@ -12,7 +12,6 @@ use crate::backend::{process, ExecBackend};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
 use crate::git::Git;
-use crate::github::GitHubClient;
 use crate::types::{CreateProjectRequest, ProjectRecord, ScaffoldEvent, StackInfo};
 
 struct Reporter(UnboundedSender<ScaffoldEvent>);
@@ -32,11 +31,21 @@ impl Reporter {
     }
 }
 
+fn reserved_windows_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    matches!(base.as_str(), "con" | "prn" | "aux" | "nul")
+        || (base.len() == 4
+            && (base.starts_with("com") || base.starts_with("lpt"))
+            && matches!(base.as_bytes()[3], b'1'..=b'9'))
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
-        && name.len() <= 100
-        && !name.starts_with('.')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && name.len() <= 64
+        && name.as_bytes()[0].is_ascii_alphanumeric()
+        && !name.ends_with('.')
+        && !reserved_windows_name(name)
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
 }
 
 /// Host-path join that keeps Windows separators when the parent looks like a Windows path.
@@ -145,7 +154,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
         rep.log(format!("표시 이름 \"{display_name}\" → 폴더/패키지 이름 \"{name}\""));
     }
     let parent = PathBuf::from(req.parent_dir.trim());
-    if !parent.is_dir() {
+    if !parent.is_absolute() || !parent.is_dir() {
         return Err(CoreError::msg(format!("상위 디렉터리를 찾을 수 없습니다: {}", parent.display())));
     }
     let target_str = join_host(&req.parent_dir.trim(), name);
@@ -158,10 +167,11 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     }
 
     let stack = match &req.stack_id {
-        Some(id) => catalog::get(id)?,
+        Some(id) => Some(catalog::get(id)?.ok_or_else(|| CoreError::msg(format!("만드는 방법을 찾을 수 없습니다: {id}. 프로젝트 구성을 다시 선택해 주세요.")))?),
         None => None,
     };
-    let backend = ctx.backend().await;
+    crate::accounts::validate(&ctx.db, &req.accounts)?;
+    let backend = crate::accounts::selected_backend(&ctx, &req.accounts).await?;
     rep.log(format!("실행 백엔드: {}", backend.label()));
 
     // Install what the stack needs first (winget / install scripts in PowerShell). Failures are reported, not
@@ -233,7 +243,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
             rep.log(".gitignore 생성");
         }
         let settings = ctx.settings().await;
-        let git = Git::new(backend.clone(), ctx.git_bin().await).with_identity(settings.git_user_name.clone(), settings.git_user_email.clone());
+        let git = Git::new(backend.clone(), ctx.git_bin().await).with_github_account(req.accounts.github.clone()).with_identity(req.accounts.git_user_name.clone().or(settings.git_user_name.clone()), req.accounts.git_user_email.clone().or(settings.git_user_email.clone()));
         let already_repo = target.join(".git").exists();
         let init_ok = if already_repo {
             rep.log("스캐폴더가 이미 git 저장소를 만들었습니다.");
@@ -261,7 +271,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
 
             if req.create_github_repo {
                 rep.step("GitHub 저장소 생성");
-                match GitHubClient::from_keyring() {
+                match crate::accounts::github_client(req.accounts.github.as_deref()).await {
                     Ok(Some(client)) => match client.create_repo(name, req.github_private, req.description.trim()).await {
                         Ok(repo) => {
                             rep.log(format!("저장소 생성: {}", repo.html_url));
@@ -289,6 +299,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     }
 
     ctx.db.upsert_project(&project)?;
+    crate::accounts::set_project(&ctx.db, &project.id, &req.accounts)?;
     ctx.docs_sync.watch(&target);
     rep.step("완료");
     Ok(project)
@@ -410,7 +421,8 @@ pub fn sync_agent_docs(ctx: &AppContext, project_id: &str) -> Result<Vec<String>
 pub fn valid_display_name(name: &str) -> bool {
     let t = name.trim();
     !t.is_empty()
-        && t.len() <= 200
+        && t.encode_utf16().count() <= 100
+        && !reserved_windows_name(t)
         && !t.chars().any(|c| matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
         && !t.ends_with('.')
 }
@@ -457,6 +469,14 @@ mod tests {
         assert!(!valid_name("a\\b"));
         assert!(!valid_name(".hidden"));
         assert!(!valid_name("한글"));
+        for name in ["con", "con.txt", "aux.log", "com1", "lpt9.backup", "app.", "-app", "_app", "MyApp"] {
+            assert!(!valid_name(name), "must reject {name}");
+        }
+        assert!(!valid_name(&"a".repeat(65)));
+        assert!(valid_name(&"a".repeat(64)));
+        assert!(!valid_display_name("CON.txt"));
+        assert!(valid_display_name(&"가".repeat(100)));
+        assert!(!valid_display_name(&"가".repeat(101)));
     }
 
     #[test]

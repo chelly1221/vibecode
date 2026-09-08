@@ -20,7 +20,7 @@ export interface PermissionCardProps {
   decision?: PermissionDecision;
   compact?: boolean;
   disabled?: boolean;
-  onReply?: (decision: PermissionDecision, message?: string) => void;
+  onReply?: (decision: PermissionDecision, message?: string) => void | Promise<void>;
   className?: string;
 }
 
@@ -74,9 +74,17 @@ function DetailView({ kind, detail }: { kind: PermissionKind; detail: unknown })
 }
 
 export function PermissionCard({ kind, title, detail, decision, compact, disabled, onReply, className }: PermissionCardProps) {
+  const [busy, setBusy] = useState(false);
   const [denying, setDenying] = useState(false);
   const [reason, setReason] = useState("");
   const pending = !decision;
+  const reply = async (value: PermissionDecision, message?: string) => {
+    if (busy || disabled || !onReply) return;
+    setBusy(true);
+    try { await onReply(value, message); }
+    catch { /* The caller displays the failure; keep the request available for retry. */ }
+    finally { setBusy(false); }
+  };
 
   return (
     <div
@@ -100,6 +108,7 @@ export function PermissionCard({ kind, title, detail, decision, compact, disable
           </Badge>
         )}
       </div>
+      {compact && pending && <details className="border-t px-3 py-2 text-xs"><summary className="cursor-pointer">AI가 하려는 작업 자세히 보기</summary><div className="mt-2"><DetailView kind={kind} detail={detail} /></div></details>}
       {!compact && (
         <div className="border-t px-3 py-2">
           <DetailView kind={kind} detail={detail} />
@@ -107,19 +116,19 @@ export function PermissionCard({ kind, title, detail, decision, compact, disable
       )}
       {pending && onReply && (
         <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2">
-          <Button size="sm" disabled={disabled} onClick={() => onReply("allow")}>
+          <Button size="sm" disabled={disabled || busy} onClick={() => void reply("allow")}>
             <CheckIcon data-icon="inline-start" />
             허용
           </Button>
-          <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onReply("allow_session")}>
-            세션 동안 허용
+          <Button size="sm" variant="secondary" disabled={disabled || busy} onClick={() => void reply("allow_session")}>
+            이 대화에서 허용
           </Button>
           {denying ? (
             <form
               className="flex min-w-0 flex-1 items-center gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                onReply("deny", reason.trim() || undefined);
+                void reply("deny", reason.trim() || undefined);
               }}
             >
               <Input
@@ -128,9 +137,9 @@ export function PermissionCard({ kind, title, detail, decision, compact, disable
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="거부 이유 (선택)"
                 className="h-7 min-w-32 flex-1 text-xs"
-                disabled={disabled}
+                disabled={disabled || busy}
               />
-              <Button size="sm" variant="destructive" type="submit" disabled={disabled}>
+              <Button size="sm" variant="destructive" type="submit" disabled={disabled || busy}>
                 <XIcon data-icon="inline-start" />
                 거부
               </Button>
@@ -139,7 +148,7 @@ export function PermissionCard({ kind, title, detail, decision, compact, disable
               </Button>
             </form>
           ) : (
-            <Button size="sm" variant="destructive" disabled={disabled} onClick={() => setDenying(true)}>
+            <Button size="sm" variant="destructive" disabled={disabled || busy} onClick={() => setDenying(true)}>
               <XIcon data-icon="inline-start" />
               거부
             </Button>

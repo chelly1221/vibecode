@@ -4,6 +4,7 @@ import { create } from "zustand";
 import {
   ipc,
   type AppSettings,
+  type ProjectAccounts,
   type CreateProjectRequest,
   type ProjectPlan,
   type ProjectRecord,
@@ -29,6 +30,7 @@ export type QuickView = "describe" | "summary";
 export type AutoStartStatus = "idle" | "starting" | "done" | "failed";
 
 export interface WizardForm {
+  accounts: ProjectAccounts;
   name: string;
   /** ASCII folder/package name used by tools; auto-derived from `name` until edited. */
   dirName: string;
@@ -105,6 +107,7 @@ interface WizardState {
 
 function initialForm(settings: AppSettings | null): WizardForm {
   return {
+    accounts: {},
     name: "",
     dirName: "",
     dirNameEdited: false,
@@ -131,6 +134,11 @@ function initialForm(settings: AppSettings | null): WizardForm {
 
 const initialScaffold: ScaffoldState = { status: "idle", steps: [], logs: [], installs: [], installTotal: 0, project: null, error: null };
 
+let generation = 0;
+let planRequest = 0;
+let stackRequest = 0;
+let recommendationRequest = 0;
+
 export const useWizardStore = create<WizardState>((set, get) => ({
   step: 0,
   mode: "quick",
@@ -148,7 +156,12 @@ export const useWizardStore = create<WizardState>((set, get) => ({
   aiRecs: null,
   aiLoading: false,
 
-  reset: (settings) =>
+  reset: (settings) => {
+    if (get().scaffold.status === "running" || get().autoStart === "starting") return;
+    generation++;
+    planRequest++;
+    stackRequest++;
+    recommendationRequest++;
     set({
       step: 0,
       mode: "quick",
@@ -160,19 +173,25 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       autoStartError: null,
       form: initialForm(settings),
       stacks: [],
+      stacksLoading: false,
+      tools: null,
       scaffold: initialScaffold,
       aiRecs: null,
       aiLoading: false,
-    }),
+    });
+  },
 
-  setMode: (mode) => set({ mode, step: 0 }),
+  setMode: (mode) => set({ mode, step: 0, ...(mode === "quick" ? { plan: null, quickView: "describe" as const } : {}) }),
   setQuickView: (quickView) => set({ quickView }),
 
   runPlan: async (provider) => {
+    if (get().planLoading) return null;
+    const request = ++planRequest;
     const { form } = get();
     set({ planLoading: true, planError: null });
     try {
-      const plan = await ipc.projects.aiPlan({ description: form.description.trim(), parent_dir: form.parentDir.trim(), provider });
+      const plan = await ipc.projects.aiPlan({ description: form.description.trim(), parent_dir: form.parentDir.trim(), provider, account_id: form.accounts[provider] });
+      if (request !== planRequest) return null;
       set((s) => ({
         plan,
         quickView: "summary",
@@ -191,16 +210,23 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       }));
       return plan;
     } catch (e) {
-      set({ planError: String(e) });
+      if (request === planRequest) set({ planError: String(e) });
       return null;
     } finally {
-      set({ planLoading: false });
+      if (request === planRequest) set({ planLoading: false });
     }
   },
 
   setAutoStart: (autoStart, error = null) => set({ autoStart, autoStartError: error }),
 
-  setField: (key, value) => set((s) => ({ form: { ...s.form, [key]: value } })),
+  setField: (key, value) => {
+    if ((key === "targetOs" || key === "projectType") && get().form[key] !== value) {
+      stackRequest++;
+      recommendationRequest++;
+      set({ stacks: [], stacksLoading: false, aiRecs: null, aiLoading: false });
+      set((s) => ({ form: { ...s.form, [key]: value, stackId: null, stackChosen: false } }));
+    } else set((s) => ({ form: { ...s.form, [key]: value } }));
+  },
 
   goTo: (step) => set({ step }),
 
@@ -240,6 +266,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
   askAi: async (provider) => {
     const { form } = get();
     if (!form.targetOs || !form.projectType) return;
+    const request = ++recommendationRequest;
     set({ aiLoading: true });
     try {
       const recs = await ipc.projects.stacksAiRecommend({
@@ -247,32 +274,36 @@ export const useWizardStore = create<WizardState>((set, get) => ({
         target_os: form.targetOs,
         project_type: form.projectType,
         provider,
+        account_id: form.accounts[provider],
       });
+      if (request !== recommendationRequest) return;
       set({ aiRecs: [...recs].sort((a, b) => b.score - a.score) });
     } finally {
-      set({ aiLoading: false });
+      if (request === recommendationRequest) set({ aiLoading: false });
     }
   },
 
   loadStacks: async () => {
     const { form } = get();
     if (!form.targetOs || !form.projectType) return;
+    const request = ++stackRequest;
     set({ stacksLoading: true, aiRecs: null });
     try {
       const stacks = await ipc.projects.stacksRecommend(form.targetOs, form.projectType);
-      set({ stacks });
+      if (request === stackRequest) set({ stacks });
     } finally {
-      set({ stacksLoading: false });
+      if (request === stackRequest) set({ stacksLoading: false });
     }
   },
 
   loadTools: async () => {
     if (get().tools) return;
+    const version = generation;
     try {
       const tools = await ipc.tools.detect();
-      set({ tools });
+      if (version === generation) set({ tools });
     } catch {
-      set({ tools: [] });
+      if (version === generation) set({ tools: [] });
     }
   },
 
@@ -287,6 +318,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       stack_id: f.stackId,
       description: f.description.trim(),
       git_init: f.gitInit,
+      accounts: f.accounts,
       create_github_repo: f.gitInit && f.createGithub,
       github_private: f.githubPrivate,
       generate_agent_docs: f.generateDocs,
@@ -299,8 +331,20 @@ export const useWizardStore = create<WizardState>((set, get) => ({
   },
 
   runCreate: async () => {
+    if (get().scaffold.status === "running") return null;
+    const form = get().form;
+    const error = validateProjectName(form.name) ?? validateDirName(form.dirName)
+      ?? (!form.parentDir.trim() ? "프로젝트를 저장할 폴더를 선택해 주세요." : null)
+      ?? (!form.targetOs || !form.projectType || !form.stackChosen ? "프로젝트 구성을 먼저 확인해 주세요." : null);
+    if (error) {
+      set({ step: 5, scaffold: { ...initialScaffold, status: "failed", error } });
+      return null;
+    }
+    const version = generation;
+    const request = get().buildRequest();
     set({ step: 5, scaffold: { ...initialScaffold, status: "running" } });
     const onEvent = (e: ScaffoldEvent) => {
+      if (version !== generation) return;
       set((s) => {
         const sc = s.scaffold;
         switch (e.type) {
@@ -312,7 +356,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
               },
             };
           case "log":
-            return { scaffold: { ...sc, logs: [...sc.logs, { line: e.line, isErr: e.is_err }] } };
+            return { scaffold: { ...sc, logs: [...sc.logs.slice(-999), { line: e.line, isErr: e.is_err }] } };
           case "install":
             return { scaffold: { ...sc, installs: applyInstallEvent(sc.installs, e), installTotal: e.total } };
           case "done":
@@ -330,7 +374,8 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       });
     };
     try {
-      const project = await ipc.projects.create(get().buildRequest(), onEvent);
+      const project = await ipc.projects.create(request, onEvent);
+      if (version !== generation) return null;
       set((s) => ({
         scaffold: {
           ...s.scaffold,
@@ -341,7 +386,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       }));
       return project;
     } catch (err) {
-      set((s) => ({ scaffold: { ...s.scaffold, status: "failed", error: String(err) } }));
+      if (version === generation) set((s) => ({ scaffold: { ...s.scaffold, status: "failed", error: String(err) } }));
       return null;
     }
   },

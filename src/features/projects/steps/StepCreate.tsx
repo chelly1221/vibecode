@@ -31,7 +31,7 @@ export function StepCreate({ onStartSession, onClose }: StepCreateProps) {
         <Alert variant="destructive">
           <XCircle />
           <AlertTitle>생성에 실패했습니다</AlertTitle>
-          <AlertDescription className="break-all whitespace-pre-wrap">{scaffold.error ?? "알 수 없는 오류"}</AlertDescription>
+          <AlertDescription><p>입력한 설정이나 설치 상태를 확인해 주세요. 파일이 일부 만들어졌다면 기존 폴더로 열어 이어서 작업할 수 있습니다.</p><details className="mt-2"><summary className="cursor-pointer">오류 자세히 보기</summary><pre className="mt-2 whitespace-pre-wrap break-all text-xs">{scaffold.error ?? "알 수 없는 오류"}</pre></details></AlertDescription>
         </Alert>
       )}
       {autoStart === "starting" && (
@@ -51,16 +51,17 @@ export function StepCreate({ onStartSession, onClose }: StepCreateProps) {
       {scaffold.status !== "running" && autoStart !== "starting" && (
         <div className="flex justify-end gap-2">
           {scaffold.status === "failed" && (
+            <><Button variant="ghost" onClick={() => useWizardStore.getState().setMode("advanced")}>설정 바꾸기</Button>
             <Button variant="outline" onClick={() => void runCreate()}>
               <RotateCcw /> 다시 시도
-            </Button>
+            </Button></>
           )}
           <Button variant="outline" onClick={onClose}>
             닫기
           </Button>
           {scaffold.status === "done" && (
             <Button onClick={onStartSession}>
-              <MessageSquarePlus /> 첫 세션 시작
+              <MessageSquarePlus /> 첫 대화 시작
             </Button>
           )}
         </div>

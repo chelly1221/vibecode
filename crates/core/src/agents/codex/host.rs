@@ -44,7 +44,7 @@ impl Drop for HostInner {
 
 /// Identifies the environment a running app-server belongs to.
 pub fn host_key(backend: &ExecBackend, bin: Option<&str>) -> String {
-    format!("{}|{}", backend.label(), bin.unwrap_or("codex"))
+    format!("{}|{}|{}", backend.label(), bin.unwrap_or("codex"), backend.account_key())
 }
 
 /// Lazily started, shared app-server client. Created once per `AppContext`.

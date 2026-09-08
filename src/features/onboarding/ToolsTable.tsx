@@ -31,9 +31,9 @@ interface Props {
 export function ToolsTable({ tools, loading, onRefresh, compact }: Props) {
   const installs = useToolInstalls(() => onRefresh());
   return (
-    <div className="rounded-lg border">
+    <div className="overflow-x-auto rounded-xl border">
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-sm font-medium">도구 감지 결과</span>
+        <span className="text-sm font-medium">설치 상태</span>
         <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> 다시 검사
         </Button>
@@ -50,8 +50,8 @@ export function ToolsTable({ tools, loading, onRefresh, compact }: Props) {
                 <td className="w-8 px-3 py-1.5">
                   {t.found ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-muted-foreground" />}
                 </td>
-                <td className="px-2 py-1.5 font-mono text-xs">{t.name}</td>
-                <td className="px-2 py-1.5 text-xs text-muted-foreground">{t.version ?? (t.found ? "버전 미확인" : "없음")}</td>
+                <td className="px-2 py-1.5 font-mono text-xs">{({ claude: "Claude", codex: "Codex", git: "Git · 변경 기록 저장" } as Record<string, string>)[t.name] ?? t.name}</td>
+                <td className="px-2 py-1.5 text-xs text-muted-foreground">{t.version ?? (t.found ? "버전 미확인" : "설치 필요")}</td>
                 {!compact && (
                   <td className="max-w-[16rem] truncate px-2 py-1.5 font-mono text-[11px] text-muted-foreground" title={t.path ?? ""}>
                     {t.path ?? ""}

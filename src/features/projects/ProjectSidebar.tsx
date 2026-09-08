@@ -1,3 +1,4 @@
+import { ProjectAccountsDialog } from "@/features/accounts/ProjectAccountsDialog";
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -12,7 +13,6 @@ import { toast } from "sonner";
 import { isOverElement, PROJECT_DROP_ZONE } from "@/lib/dropZones";
 import { registerDroppedPaths, registerExistingProject } from "./registerExisting";
 import { AgentDocsPrompt } from "./AgentDocsPrompt";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -30,46 +30,24 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { SessionList } from "./SessionList";
 import { formatRelative } from "./format";
 
-function IconButton({ label, onClick, children, pressed }: { label: string; onClick: () => void; children: React.ReactNode; pressed?: boolean }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          onClick={onClick}
-          aria-label={label}
-          aria-pressed={pressed}
-          className={cn(pressed && "bg-sidebar-accent text-sidebar-accent-foreground")}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
 
-function ProjectItem({ project, selected, onSelect, onRemove }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void }) {
+function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void; onAccounts: () => void }) {
   return (
     <li className="group/project relative">
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
+            aria-current={selected ? "page" : undefined}
             onClick={onSelect}
             className={cn(
-              "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent",
-              selected && "bg-sidebar-accent text-sidebar-accent-foreground",
+              "flex w-full flex-col gap-1 rounded-xl px-3 py-3 text-left text-sm hover:bg-sidebar-accent",
+              selected && "bg-primary/10 text-sidebar-accent-foreground ring-1 ring-inset ring-primary/20",
             )}
           >
             <span className="flex items-center gap-1.5 pr-6">
               <span className="truncate font-medium">{project.name}</span>
-              {project.stack_id && (
-                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-                  {project.stack_id}
-                </Badge>
-              )}
+
             </span>
             <span className="truncate text-[11px] text-muted-foreground">{formatRelative(project.last_opened_at)}</span>
           </button>
@@ -83,13 +61,14 @@ function ProjectItem({ project, selected, onSelect, onRemove }: { project: Proje
           <Button
             size="icon-xs"
             variant="ghost"
-            className="absolute top-1.5 right-1 opacity-0 group-hover/project:opacity-100 data-[state=open]:opacity-100"
+            className="absolute top-1.5 right-1 opacity-60 group-hover/project:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
             aria-label="프로젝트 메뉴"
           >
             <MoreHorizontal />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onAccounts}>사용할 계정 선택</DropdownMenuItem>
           <DropdownMenuItem onClick={() => openPath(project.path).catch((e) => toast.error(`열기 실패: ${e}`))}>
             <FolderOpen /> 탐색기에서 열기
           </DropdownMenuItem>
@@ -115,6 +94,7 @@ export function ProjectSidebar() {
   const selectProject = useAppStore((s) => s.selectProject);
   const loadProjects = useAppStore((s) => s.loadProjects);
   const setWizardOpen = useAppStore((s) => s.setWizardOpen);
+  const [accountProject, setAccountProject] = useState<ProjectRecord | null>(null);
   const [pendingRemove, setPendingRemove] = useState<ProjectRecord | null>(null);
 
   const openExisting = async () => {
@@ -169,17 +149,12 @@ export function ProjectSidebar() {
 
   return (
     <aside data-drop-zone="projects" className={cn("flex h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground", dropping && "ring-2 ring-inset ring-primary/60")}>
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-sm font-semibold tracking-tight">프로젝트</span>
-        <div className="flex items-center gap-0.5">
-          <IconButton label="새 프로젝트" onClick={() => setWizardOpen(true)}>
-            <Plus />
-          </IconButton>
-          <IconButton label="기존 프로젝트 등록 (폴더 선택 · 드래그 앤 드롭)" onClick={openExisting}>
-            <FolderOpen />
-          </IconButton>
-        </div>
+      <div className="space-y-3 border-b p-3">
+        <button type="button" onClick={() => selectProject(null)} className="w-full rounded-lg px-2 py-2 text-left text-sm font-semibold hover:bg-sidebar-accent">내 작업 공간</button>
+        <Button className="w-full justify-start" onClick={() => setWizardOpen(true)}><Plus /> 새로 만들기</Button>
+        <Button variant="outline" className="w-full justify-start" onClick={openExisting}><FolderOpen /> 기존 폴더 열기</Button>
       </div>
+      <div className="flex items-center justify-between px-4 py-3"><span className="text-xs font-medium text-muted-foreground">내 프로젝트</span><span className="text-xs text-muted-foreground">{projects.length}</span></div>
 
       <ScrollArea className="min-h-0 flex-1 px-2">
         {projects.length === 0 ? (
@@ -204,6 +179,7 @@ export function ProjectSidebar() {
                   selected={p.id === activeProjectId}
                   onSelect={() => selectProject(p.id)}
                   onRemove={() => setPendingRemove(p)}
+                  onAccounts={() => setAccountProject(p)}
                 />
                 {p.id === activeProjectId && <SessionList projectId={p.id} />}
               </div>
@@ -213,6 +189,7 @@ export function ProjectSidebar() {
       </ScrollArea>
 
 
+      {accountProject && <ProjectAccountsDialog key={accountProject.id} project={accountProject} onClose={() => setAccountProject(null)} />}
       <ConfirmDialog
         open={pendingRemove !== null}
         onOpenChange={(o) => !o && setPendingRemove(null)}

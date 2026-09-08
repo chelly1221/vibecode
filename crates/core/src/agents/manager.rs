@@ -47,8 +47,14 @@ impl SessionManager {
         // Both agents must see the same instructions.
         crate::projects::docs_sync::reconcile_quietly(std::path::Path::new(&project.path));
         ctx.docs_sync.watch(std::path::Path::new(&project.path));
-        let backend = ctx.backend().await;
+        let source = config.resume_ref.as_ref().and_then(|r| ctx.db.list_sessions(&project.id).ok()?.into_iter().find(|s| s.provider == config.provider && s.external_ref.as_ref() == Some(r)));
+        if config.resume_ref.is_some() && source.is_none() { return Err(CoreError::msg("이 프로젝트에 연결된 대화를 찾을 수 없습니다. 새 대화를 시작하세요")); }
+        let selected = match &source { Some(s) => crate::accounts::session(&ctx.db, &s.id)?, None => crate::accounts::project(&ctx.db, &project.id)? };
+        if selected.agent(config.provider).is_none() { return Err(CoreError::msg("이 대화에 연결된 AI 계정이 없습니다. 프로젝트 계정을 선택하고 새 대화를 시작하세요")); }
+        let backend = crate::accounts::selected_backend(&ctx, &selected).await?;
         let bin = ctx.bin_override(config.provider).await;
+        let status = crate::tools::auth_status(backend.clone(), config.provider, bin.as_deref()).await?;
+        if !status.logged_in { return Err(CoreError::msg("선택한 AI 계정에 로그인이 필요합니다. 계정 등록·관리에서 연결해 주세요")); }
 
         // Resuming a known provider session continues its record; forks get a fresh one.
         let existing = match (&config.resume_ref, config.fork) {
@@ -83,6 +89,7 @@ impl SessionManager {
             return Err(CoreError::msg("이 세션은 이미 실행 중입니다"));
         }
         ctx.db.upsert_session(&record)?;
+        crate::accounts::save_session(&ctx.db, &record.id, &selected)?;
         ctx.db.touch_project(&project.id).ok();
 
         let (adapter_tx, adapter_rx) = mpsc::unbounded_channel::<SessionEvent>();
@@ -103,8 +110,9 @@ impl SessionManager {
                 super::claude::ClaudeSession::start(args, broker).await?
             }
             Provider::Codex => {
-                ctx.codex.ensure_started(backend.clone(), bin.clone()).await?;
-                ctx.codex.start_session(args).await?
+                let host = ctx.account_host(backend.account_key()).await;
+                host.ensure_started(backend.clone(), bin.clone()).await?;
+                host.start_session(args).await?
             }
         };
         self.live.write().await.insert(record.id.clone(), session);

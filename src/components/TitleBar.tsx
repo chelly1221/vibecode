@@ -3,7 +3,8 @@
 // `data-tauri-drag-region` move the window; double-click toggles maximize.
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, FolderTree, GitBranch, Minus, MonitorPlay, Settings, Square, SquareTerminal, X } from "lucide-react";
+import { Copy, MoreHorizontal, FolderTree, GitBranch, Minus, MonitorPlay, Settings, Square, SquareTerminal, X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Logo } from "@/components/Logo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -31,10 +32,11 @@ function PanelButton({
       <TooltipTrigger asChild>
         <button
           type="button"
+          aria-label={label}
           aria-pressed={pressed}
           onClick={onClick}
           className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+            "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
             pressed ? "bg-primary/15 text-foreground ring-1 ring-primary/40" : "text-muted-foreground hover:bg-accent hover:text-foreground",
           )}
         >
@@ -89,16 +91,21 @@ export function TitleBar({ showPanels = true }: { showPanels?: boolean }) {
   return (
     <header
       data-tauri-drag-region
-      className="relative flex h-9 shrink-0 select-none items-stretch border-b bg-sidebar text-sidebar-foreground"
+      className="relative flex h-12 shrink-0 select-none items-stretch border-b bg-sidebar text-sidebar-foreground"
     >
       {/* Panel toggles on the far left (icon + label) */}
       {showPanels ? (
         <div className="flex items-center gap-0.5 pl-2 pr-3">
-          <PanelButton icon={<GitBranch className="size-3.5" />} label="git" hint="git 패널: 변경 사항 · 커밋 · 푸시 (Ctrl+1)" pressed={gitPanelOpen} onClick={() => setGitPanelOpen(!gitPanelOpen)} />
-          <PanelButton icon={<SquareTerminal className="size-3.5" />} label="터미널" hint="내장 터미널 (Ctrl+2)" pressed={terminalOpen} onClick={() => setTerminalOpen(!terminalOpen)} />
-          <PanelButton icon={<FolderTree className="size-3.5" />} label="파일" hint="프로젝트 파일 탐색기 (Ctrl+3)" pressed={filesPanelOpen} onClick={() => setFilesPanelOpen(!filesPanelOpen)} />
-          <PanelButton icon={<MonitorPlay className="size-3.5" />} label="UI 미리보기" hint="dev 서버 화면을 실시간으로 보며 요소를 골라 지시 (Ctrl+4)" pressed={previewOpen} onClick={() => setPreviewOpen(!previewOpen)} />
-          <PanelButton icon={<Settings className="size-3.5" />} label="설정" hint="기본값 · 도구 · 계정 · MCP (Ctrl+,)" onClick={() => setSettingsOpen(true)} />
+          <PanelButton icon={<MonitorPlay className="size-4" />} label="미리보기" hint="만든 화면 확인하기 (Ctrl+4)" pressed={previewOpen} onClick={() => setPreviewOpen(!previewOpen)} />
+          <PanelButton icon={<GitBranch className="size-4" />} label="변경 내역" hint="변경 확인하고 버전 저장하기 (Ctrl+1)" pressed={gitPanelOpen} onClick={() => setGitPanelOpen(!gitPanelOpen)} />
+          <PanelButton icon={<Settings className="size-4" />} label="설정" hint="AI 계정 · 저장 위치 · 화면 설정 (Ctrl+,)" onClick={() => setSettingsOpen(true)} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><button type="button" aria-label="추가 도구" className="flex h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent"><MoreHorizontal className="size-4" /><span>더 보기</span></button></DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => setFilesPanelOpen(!filesPanelOpen)}><FolderTree /> {filesPanelOpen ? "파일 목록 닫기" : "파일 목록 열기"} <span className="ml-auto text-xs text-muted-foreground">Ctrl+3</span></DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setTerminalOpen(!terminalOpen)}><SquareTerminal /> {terminalOpen ? "개발자 터미널 닫기" : "개발자 터미널 열기"} <span className="ml-auto text-xs text-muted-foreground">Ctrl+2</span></DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : (
         <div data-tauri-drag-region className="w-3" />
@@ -106,7 +113,7 @@ export function TitleBar({ showPanels = true }: { showPanels?: boolean }) {
 
       {/* Draggable middle; the logo + name are centred in the whole bar */}
       <div data-tauri-drag-region className="min-w-0 flex-1" />
-      <div data-tauri-drag-region className="pointer-events-none absolute inset-x-0 top-0 flex h-9 items-center justify-center gap-2">
+      <div data-tauri-drag-region className="pointer-events-none flex shrink-0 items-center justify-center gap-2 px-4">
         <Logo className="size-4" />
         <span className="text-sm font-semibold tracking-tight">Vibecoder</span>
       </div>

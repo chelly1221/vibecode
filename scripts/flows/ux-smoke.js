@@ -1,0 +1,106 @@
+// Development WebView smoke checks. IPC is stubbed; no projects, accounts, or files are modified.
+// Run: node.exe scripts/cdp.mjs run scripts/flows/ux-smoke.js
+const loadedModule = (path) => {
+  const urls = performance.getEntriesByType('resource').map((e) => e.name).filter((url) => new URL(url).pathname === path);
+  return urls.filter((url) => url.includes('?t=')).at(-1) ?? urls.at(-1) ?? path;
+};
+const { useAppStore: app } = await import(loadedModule('/src/stores/app.ts'));
+const { useSessionsStore: sessions, createSessionState } = await import(loadedModule('/src/stores/sessions.ts'));
+const { ipc } = await import(loadedModule('/src/lib/ipc.ts'));
+const savedApp = app.getState();
+const savedSessions = sessions.getState();
+const savedIpc = { list: ipc.sessions.list, send: ipc.sessions.send, models: ipc.tools.listModels };
+const results = [];
+const assert = (condition, label) => { if (!condition) throw new Error(label); results.push(label); };
+const pause = () => vc.sleep(80);
+const button = (text) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
+const input = () => document.querySelector('textarea[aria-label="AI에게 보낼 메시지"]');
+const unhandled = [];
+const capture = (event) => unhandled.push(String(event.reason));
+window.addEventListener('unhandledrejection', capture);
+try {
+  app.setState({ settingsOpen: false, wizardOpen: false, activeProjectId: null, activeSessionId: null, gitPanelOpen: false, previewOpen: false, terminalOpen: false, filesPanelOpen: false });
+  await pause();
+  assert(!!button('새로 만들기'), 'home has a visible create action');
+  assert(!!button('기존 폴더 열기'), 'home has a visible open-folder action');
+
+  app.getState().setSettingsOpen(true);
+  await vc.waitFor(() => document.querySelector('[role="dialog"] input'));
+  const folderInput = document.querySelector('[role="dialog"] input');
+  const changed = folderInput.value + '\\ux-unsaved';
+  vc.setValue(folderInput, changed);
+  await pause();
+  button('닫기').click();
+  await pause();
+  assert(vc.text().includes('저장하지 않은 설정이 있어요'), 'closing dirty settings asks before discarding');
+  button('취소').click();
+  await pause();
+  assert(document.querySelector('[role="dialog"] input').value === changed, 'cancel keeps unsaved settings');
+  button('닫기').click();
+  await pause();
+  button('저장하지 않고 닫기').click();
+  await pause();
+  assert(!app.getState().settingsOpen, 'discard closes settings');
+  assert(app.getState().settings === savedApp.settings, 'discard does not write settings');
+
+  const now = new Date().toISOString();
+  const project = { id: '__ux_smoke__', name: '화면 점검', path: 'C:\\ux-smoke', stack_id: null, created_at: now, last_opened_at: now };
+  const records = ['__ux_a__', '__ux_b__'].map((id) => ({ id, project_id: project.id, provider: 'claude', title: '입력 보존 확인', model: null, effort: 'high', permission: 'auto_edit', external_ref: null, total_cost_usd: 0, archived: false, created_at: now, last_used_at: now }));
+  ipc.sessions.list = async () => records;
+  ipc.tools.listModels = async () => [];
+  const states = Object.fromEntries(records.map((r) => [r.id, { ...createSessionState(r), live: true, historyLoaded: true }]));
+  sessions.setState({ sessions: states });
+  app.setState({ projects: [project], activeProjectId: project.id, activeSessionId: records[0].id, sessionsByProject: { [project.id]: records }, composerInsert: null });
+  await vc.waitFor(input);
+  let resolveSend;
+  let sends = 0;
+  ipc.sessions.send = () => { sends++; return new Promise((resolve) => { resolveSend = resolve; }); };
+  vc.setValue(input(), '첫 요청');
+  await pause();
+  button('보내기').click();
+  await vc.waitFor(() => resolveSend);
+  vc.setValue(input(), '전송 중 작성한 다음 요청');
+  await pause();
+  resolveSend();
+  await pause();
+  assert(input().value === '전송 중 작성한 다음 요청', 'new typing survives an earlier send completing');
+
+  ipc.sessions.send = async () => { sends++; throw new Error('smoke: intentional send failure'); };
+  button('보내기').click();
+  await pause();
+  assert(input().value === '전송 중 작성한 다음 요청', 'failed send preserves the draft');
+  const beforeIme = sends;
+  input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, isComposing: true }));
+  await pause();
+  assert(sends === beforeIme, 'Korean IME Enter does not submit');
+  app.setState({ activeSessionId: records[1].id });
+  await pause();
+  assert(input().value === '', 'different conversations have separate drafts');
+  app.setState({ activeSessionId: records[0].id });
+  await pause();
+  assert(input().value === '전송 중 작성한 다음 요청', 'returning to a conversation restores its draft');
+  vc.setValue(input(), '');
+  await pause();
+  app.getState().insertIntoComposer('미리보기에서 선택한 내용');
+  await pause();
+  assert(input().value === '미리보기에서 선택한 내용', 'preview handoff inserts once');
+  app.setState({ activeSessionId: null });
+  await pause();
+  app.setState({ activeSessionId: records[0].id });
+  await pause();
+  assert(input().value === '미리보기에서 선택한 내용', 'remount does not repeat preview handoff');
+  vc.setValue(input(), '');
+  await pause();
+  sessions.setState({ sessions: { ...sessions.getState().sessions, [records[0].id]: { ...sessions.getState().sessions[records[0].id], running: true } } });
+  await pause();
+  assert(!!button('추가 요청') && !!button('멈추기'), 'working AI exposes both send and stop actions');
+  assert(unhandled.length === 0, 'no unhandled promise rejections');
+  return { passed: results.length, checks: results };
+} finally {
+  window.removeEventListener('unhandledrejection', capture);
+  ipc.sessions.list = savedIpc.list;
+  ipc.sessions.send = savedIpc.send;
+  ipc.tools.listModels = savedIpc.models;
+  sessions.setState(savedSessions, true);
+  app.setState(savedApp, true);
+}

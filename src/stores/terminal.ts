@@ -11,6 +11,7 @@ export interface TerminalTab {
   args: string[];
   cwd: string | null;
   ptyId: string | null;
+  projectId: string | null;
   exitCode: number | null | undefined; // undefined = running
 }
 
@@ -42,6 +43,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       args: cmd.args,
       cwd: cwd ?? null,
       ptyId: null,
+      projectId: useAppStore.getState().activeProjectId,
       exitCode: undefined,
     };
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));

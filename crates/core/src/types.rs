@@ -178,7 +178,7 @@ impl Default for AppSettings {
             git_bin: None,
             git_user_name: None,
             git_user_email: None,
-            theme: "system".into(),
+            theme: "dark".into(),
             onboarding_done: false,
             checkpoints_enabled: true,
             notifications_enabled: true,
@@ -327,6 +327,9 @@ pub struct AgentDocsStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct CreateProjectRequest {
+    #[serde(default)]
+    pub accounts: ProjectAccounts,
+
     /// Display name shown in the app (any characters incl. Korean).
     pub name: String,
     /// Folder / package identifier used by scaffolding tools (ASCII: a-z 0-9 - _ .). None = derived from `name`
@@ -664,6 +667,10 @@ pub struct FsFile {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct StackRecommendRequest {
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub account_id: Option<String>,
+
     pub description: String,
     pub target_os: TargetOs,
     pub project_type: ProjectType,
@@ -683,6 +690,10 @@ pub struct StackRecommendation {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct ProjectPlanRequest {
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub account_id: Option<String>,
+
     pub description: String,
     /// Windows path the project will be created in (used to pick a free folder name). Empty = skip the check.
     pub parent_dir: String,
@@ -876,4 +887,30 @@ pub enum PtyEvent {
         #[ts(optional = nullable)]
         code: Option<i32>,
     },
+}
+
+// Named CLI / GitHub accounts are local to this Windows user, never project files.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountKind { Claude, Codex, Github }
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct AccountProfile { pub id: String, pub name: String, pub kind: AccountKind }
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(default)]
+pub struct ProjectAccounts {
+    #[ts(optional = nullable)] pub claude: Option<String>,
+    #[ts(optional = nullable)] pub codex: Option<String>,
+    #[ts(optional = nullable)] pub github: Option<String>,
+    #[ts(optional = nullable)] pub git_user_name: Option<String>,
+    #[ts(optional = nullable)] pub git_user_email: Option<String>,
+}
+impl ProjectAccounts {
+    pub fn agent(&self, provider: Provider) -> Option<&str> {
+        match provider { Provider::Claude => self.claude.as_deref(), Provider::Codex => self.codex.as_deref() }
+    }
 }

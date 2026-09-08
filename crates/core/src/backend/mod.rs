@@ -67,13 +67,19 @@ impl CommandOutput {
 }
 
 /// Runs programs directly on the host OS.
-#[derive(Default)]
-pub struct ExecBackend;
+#[derive(Default, Clone)]
+pub struct ExecBackend {
+    pub(crate) environment: Vec<(String, String)>,
+    pub(crate) remove_environment: Vec<String>,
+    pub(crate) account_key: String,
+}
 
 impl ExecBackend {
     pub fn new() -> Self {
-        ExecBackend
+        Self::default()
     }
+
+    pub fn account_key(&self) -> &str { &self.account_key }
 
     /// Human-readable label shown in logs ("Windows").
     pub fn label(&self) -> String {
@@ -111,6 +117,8 @@ impl ExecBackend {
         if let Some(cwd) = &spec.cwd {
             cmd.current_dir(cwd);
         }
+        for k in &self.remove_environment { cmd.env_remove(k); }
+        for (k, v) in &self.environment { cmd.env(k, v); }
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }

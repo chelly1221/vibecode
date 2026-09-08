@@ -33,7 +33,7 @@ export function CheckpointsPopover({ projectId, sessionId }: { projectId: string
       setList(await ipc.checkpoints.list(projectId, sessionId));
     } catch (e) {
       setList([]);
-      toast.error("체크포인트 목록을 가져오지 못했습니다", { description: String(e) });
+      toast.error("복원 지점 목록을 가져오지 못했습니다", { description: String(e) });
     } finally {
       setLoading(false);
     }
@@ -47,11 +47,11 @@ export function CheckpointsPopover({ projectId, sessionId }: { projectId: string
     setSaving(true);
     try {
       const rec = await ipc.checkpoints.create(projectId, sessionId, "수동 저장");
-      if (rec) toast.success(`체크포인트 저장: ${rec.label}`);
-      else toast.info("마지막 체크포인트 이후 바뀐 파일이 없습니다");
+      if (rec) toast.success(`복원 지점 저장: ${rec.label}`);
+      else toast.info("마지막 복원 지점 이후 바뀐 파일이 없습니다");
       await refresh();
     } catch (e) {
-      toast.error("체크포인트 저장 실패", { description: String(e) });
+      toast.error("복원 지점 저장 실패", { description: String(e) });
     } finally {
       setSaving(false);
     }
@@ -60,15 +60,15 @@ export function CheckpointsPopover({ projectId, sessionId }: { projectId: string
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="ghost" title="체크포인트">
+        <Button size="sm" variant="ghost" title="복원 지점">
           <HistoryIcon data-icon="inline-start" />
-          체크포인트
+          복원 지점
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 p-0">
         <div className="flex items-center gap-2 border-b px-3 py-2 text-sm">
           <HistoryIcon className="size-4" />
-          <span className="font-medium">체크포인트</span>
+          <span className="font-medium">복원 지점</span>
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void saveNow()} disabled={saving}>
             {saving ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <SaveIcon data-icon="inline-start" />}
             지금 저장
@@ -80,7 +80,7 @@ export function CheckpointsPopover({ projectId, sessionId }: { projectId: string
               <Loader2Icon className="size-3.5 animate-spin" /> 불러오는 중…
             </div>
           ) : !list || list.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground">아직 체크포인트가 없습니다. 에이전트 턴이 시작될 때 자동으로 저장됩니다.</div>
+            <div className="px-3 py-4 text-xs text-muted-foreground">아직 복원 지점이 없습니다. AI가 작업을 시작하기 전에 자동으로 저장됩니다.</div>
           ) : (
             list.map((c) => (
               <div key={c.id} className="flex items-center gap-2 border-b px-3 py-2 text-xs last:border-b-0">

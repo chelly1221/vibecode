@@ -2,6 +2,9 @@
 // src-tauri/src/commands/mod.rs are the IPC contract: keep them in sync.
 // Argument keys are camelCase (Tauri converts to the Rust snake_case params).
 
+import type { AccountProfile } from "./bindings/AccountProfile";
+import type { AccountKind } from "./bindings/AccountKind";
+import type { ProjectAccounts } from "./bindings/ProjectAccounts";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AgentDocsStatus } from "./bindings/AgentDocsStatus";
 import type { AgentQuestion } from "./bindings/AgentQuestion";
@@ -58,6 +61,14 @@ function channel<T>(handler: (msg: T) => void): Channel<T> {
 }
 
 export const ipc = {
+  accounts: {
+    list: () => invoke<AccountProfile[]>("accounts_list"),
+    create: (name: string, kind: AccountKind) => invoke<AccountProfile>("accounts_create", { name, kind }),
+    remove: (id: string) => invoke<void>("accounts_remove", { id }),
+    project: (projectId: string) => invoke<ProjectAccounts>("accounts_project_get", { projectId }),
+    setProject: (projectId: string, selected: ProjectAccounts) => invoke<ProjectAccounts>("accounts_project_set", { projectId, selected }),
+    session: (sessionId: string) => invoke<ProjectAccounts>("accounts_session_get", { sessionId }),
+  },
   settings: {
     get: () => invoke<AppSettings>("settings_get"),
     set: (settings: AppSettings) => invoke<AppSettings>("settings_set", { settings }),
@@ -67,14 +78,14 @@ export const ipc = {
     /** Detect tools on the Windows host (honours the binaries set in settings). */
     detect: () => invoke<ToolStatus[]>("tools_detect"),
     /** Login state of a provider's CLI. */
-    authStatus: (provider: Provider) => invoke<AuthStatus>("tools_auth_status", { provider }),
+    authStatus: (provider: Provider, accountId?: string | null) => invoke<AuthStatus>("tools_auth_status", { provider, accountId: accountId ?? null }),
     /** Install a known tool in the background (winget / install script); streams log lines, resolves with the re-detected status. */
     install: (name: string, onEvent: (e: ToolInstallEvent) => void) => invoke<ToolStatus>("tools_install", { name, onEvent: channel(onEvent) }),
     /** GUI login: runs the CLI login in a hidden PTY and streams URL / code prompt / result. Resolves with the login id. */
-    loginStart: (provider: Provider, onEvent: (e: LoginEvent) => void) => invoke<string>("tools_login_start", { provider, onEvent: channel(onEvent) }),
+    loginStart: (provider: Provider, onEvent: (e: LoginEvent) => void, accountId?: string) => invoke<string>("tools_login_start", { provider, accountId, onEvent: channel(onEvent) }),
     loginCode: (loginId: string, code: string) => invoke<void>("tools_login_code", { loginId, code }),
     loginCancel: (loginId: string) => invoke<void>("tools_login_cancel", { loginId }),
-    listModels: (provider: Provider) => invoke<ModelInfo[]>("models_list", { provider }),
+    listModels: (provider: Provider, accountId?: string | null, projectId?: string | null) => invoke<ModelInfo[]>("models_list", { provider, accountId, projectId }),
   },
 
   env: {
@@ -182,16 +193,16 @@ export const ipc = {
   },
 
   github: {
-    setToken: (token: string) => invoke<GitHubUser>("github_set_token", { token }),
-    clearToken: () => invoke<void>("github_clear_token"),
-    whoami: () => invoke<GitHubUser | null>("github_whoami"),
+    setToken: (token: string, accountId?: string) => invoke<GitHubUser>("github_set_token", { token, accountId }),
+    clearToken: (accountId?: string) => invoke<void>("github_clear_token", { accountId }),
+    whoami: (accountId?: string | null) => invoke<GitHubUser | null>("github_whoami", { accountId }),
     createRepo: (name: string, isPrivate: boolean, description?: string) =>
       invoke<GitHubRepo>("github_create_repo", { name, private: isPrivate, description: description ?? null }),
   },
 
   pty: {
-    open: (spec: PtySpec, onEvent: (e: PtyEvent) => void) =>
-      invoke<string>("pty_open", { spec, onEvent: channel(onEvent) }),
+    open: (spec: PtySpec, onEvent: (e: PtyEvent) => void, projectId?: string | null) =>
+      invoke<string>("pty_open", { spec, projectId, onEvent: channel(onEvent) }),
     write: (ptyId: string, data: string) => invoke<void>("pty_write", { ptyId, data }),
     resize: (ptyId: string, cols: number, rows: number) => invoke<void>("pty_resize", { ptyId, cols, rows }),
     close: (ptyId: string) => invoke<void>("pty_close", { ptyId }),
@@ -199,6 +210,7 @@ export const ipc = {
 };
 
 export type {
+  AccountProfile, AccountKind, ProjectAccounts,
   AgentDocsStatus,
   AgentQuestion,
   AppSettings,

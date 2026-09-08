@@ -38,7 +38,7 @@ export function SessionList({ projectId }: { projectId: string }) {
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
 
   useEffect(() => {
-    loadSessions(projectId).catch((e) => toast.error(`세션 목록을 불러오지 못했습니다: ${e}`));
+    loadSessions(projectId).catch((e) => toast.error(`대화 목록을 불러오지 못했습니다: ${e}`));
   }, [projectId, loadSessions]);
 
   const visible = useMemo(() => filterSessions(sessions ?? [], query, showArchived), [sessions, query, showArchived]);
@@ -50,7 +50,7 @@ export function SessionList({ projectId }: { projectId: string }) {
       await ipc.sessions.delete(pendingDelete.id);
       if (activeSessionId === pendingDelete.id) selectSession(null);
       await loadSessions(projectId);
-      toast.success("세션을 삭제했습니다.");
+      toast.success("대화을 삭제했습니다.");
     } catch (e) {
       toast.error(`삭제 실패: ${e}`);
     }
@@ -74,7 +74,7 @@ export function SessionList({ projectId }: { projectId: string }) {
       await ipc.sessions.setArchived(s.id, archived);
       if (archived && activeSessionId === s.id) selectSession(null);
       await loadSessions(projectId);
-      toast.success(archived ? "세션을 보관했습니다." : "보관을 해제했습니다.");
+      toast.success(archived ? "대화을 보관했습니다." : "보관을 해제했습니다.");
     } catch (e) {
       toast.error(`보관 처리 실패: ${e}`);
     }
@@ -82,7 +82,7 @@ export function SessionList({ projectId }: { projectId: string }) {
 
   const exportMd = async (s: SessionRecord) => {
     try {
-      const path = await save({ defaultPath: exportFileName(s.title), filters: [{ name: "Markdown", extensions: ["md"] }], title: "세션 내보내기" });
+      const path = await save({ defaultPath: exportFileName(s.title), filters: [{ name: "Markdown", extensions: ["md"] }], title: "대화 내보내기" });
       if (!path) return;
       await ipc.sessions.exportToFile(s.id, path);
       toast.success(`내보냈습니다: ${path}`);
@@ -94,19 +94,19 @@ export function SessionList({ projectId }: { projectId: string }) {
   return (
     <div className="mt-1 ml-3 border-l pl-2">
       <div className="flex items-center justify-between py-1 pr-1">
-        <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">세션</span>
-        <Button size="xs" variant="ghost" onClick={() => setNewSessionOpen(true)} title="새 세션">
-          <Plus /> 새 세션
+        <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">대화</span>
+        <Button size="xs" variant="ghost" onClick={() => setNewSessionOpen(true)} title="새 대화">
+          <Plus /> 새 대화
         </Button>
       </div>
       {(sessions?.length ?? 0) > 3 && (
         <div className="relative mb-1 pr-1">
           <Search className="pointer-events-none absolute top-1/2 left-1.5 size-3 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="세션 검색" className="h-6 pl-6 text-[11px]" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="대화 검색" className="h-6 pl-6 text-[11px]" />
         </div>
       )}
       {!sessions || sessions.length === 0 ? (
-        <p className="px-1 pb-2 text-xs text-muted-foreground">아직 세션이 없습니다.</p>
+        <p className="px-1 pb-2 text-xs text-muted-foreground">아직 대화이 없습니다.</p>
       ) : (
         <ul className="space-y-0.5 pb-1">
           {visible.map((s) => {
@@ -155,8 +155,8 @@ export function SessionList({ projectId }: { projectId: string }) {
                       <Button
                         size="icon-xs"
                         variant="ghost"
-                        className="absolute top-1 right-1 opacity-0 group-hover/session:opacity-100 data-[state=open]:opacity-100"
-                        aria-label="세션 메뉴"
+                        className="absolute top-1 right-1 opacity-60 group-hover/session:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                        aria-label="대화 메뉴"
                       >
                         <MoreHorizontal />
                       </Button>
@@ -189,7 +189,7 @@ export function SessionList({ projectId }: { projectId: string }) {
               </li>
             );
           })}
-          {visible.length === 0 && <li className="px-1 pb-1 text-xs text-muted-foreground">일치하는 세션이 없습니다.</li>}
+          {visible.length === 0 && <li className="px-1 pb-1 text-xs text-muted-foreground">일치하는 대화이 없습니다.</li>}
         </ul>
       )}
       {archivedCount > 0 && (
@@ -200,8 +200,8 @@ export function SessionList({ projectId }: { projectId: string }) {
       <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(o) => !o && setPendingDelete(null)}
-        title="세션을 삭제할까요?"
-        description={`"${pendingDelete?.title ?? ""}" 세션과 대화 기록이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`}
+        title="대화을 삭제할까요?"
+        description={`"${pendingDelete?.title ?? ""}" 대화과 대화 기록이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`}
         confirmLabel="삭제"
         destructive
         onConfirm={remove}

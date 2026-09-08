@@ -1,4 +1,4 @@
-//! GitHub REST API (token from `secrets::get("github_token")`).
+//! GitHub repository operations. Tokens are supplied by the selected named account.
 
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -6,7 +6,6 @@ use serde::Deserialize;
 use crate::error::{CoreError, Result};
 use crate::types::{GitHubRepo, GitHubUser};
 
-pub const TOKEN_KEY: &str = "github_token";
 const API: &str = "https://api.github.com";
 
 pub struct GitHubClient {
@@ -36,10 +35,6 @@ struct ErrResp {
 }
 
 impl GitHubClient {
-    pub fn from_keyring() -> Result<Option<GitHubClient>> {
-        Ok(crate::secrets::get(TOKEN_KEY)?.map(|token| GitHubClient { token }))
-    }
-
     fn client(&self) -> Result<reqwest::Client> {
         use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
         let mut h = HeaderMap::new();

@@ -27,6 +27,8 @@ async fn create_and_open_project_natively() {
 
     let parent = tempfile::tempdir().unwrap();
     let req = CreateProjectRequest {
+
+        accounts: Default::default(),
         name: "demo-proj".into(),
         dir_name: None,
         parent_dir: parent.path().to_string_lossy().to_string(),
@@ -79,6 +81,8 @@ async fn create_and_open_project_natively() {
     // Duplicate name is rejected.
     let (tx2, _rx2) = tokio::sync::mpsc::unbounded_channel::<ScaffoldEvent>();
     let dup = CreateProjectRequest {
+
+        accounts: Default::default(),
         name: "demo-proj".into(),
         dir_name: None,
         parent_dir: parent.path().to_string_lossy().to_string(),

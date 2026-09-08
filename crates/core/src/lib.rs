@@ -18,6 +18,7 @@
 //! - `preview`    dev-server runner for the UI preview
 //! - `tools`      CLI detection and auth status
 
+pub mod accounts;
 pub mod agents;
 pub mod backend;
 pub mod checkpoint;

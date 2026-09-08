@@ -152,7 +152,9 @@ pub async fn recommend(backend: Arc<ExecBackend>, bin: Option<String>, req: Stac
 pub(crate) async fn claude_structured(backend: Arc<ExecBackend>, bin: Option<String>, cwd: &std::path::Path, prompt: &str, schema: &str) -> Result<Value> {
     let bin = bin.filter(|b| !b.trim().is_empty()).unwrap_or_else(|| "claude".into());
     let spec = CommandSpec::new(bin)
-        .args(["-p", "--output-format", "json", "--json-schema", schema, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--disallowedTools", "*"])
+        // JSON schema responses use Claude's StructuredOutput tool. A wildcard deny also
+        // blocks that tool, causing a successful CLI exit with no structured answer.
+        .args(["-p", "--output-format", "json", "--json-schema", schema, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", "", "--allowedTools", "StructuredOutput"])
         .cwd(cwd);
     let mut cmd = backend.command(&spec);
     cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
@@ -171,6 +173,9 @@ pub(crate) async fn claude_structured(backend: Arc<ExecBackend>, bin: Option<Str
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .find(|v| v.get("type").and_then(Value::as_str) == Some("result"))
         .ok_or_else(|| CoreError::Agent(format!("unexpected claude output: {}", stdout.chars().take(300).collect::<String>())))?;
+    if result.get("is_error").and_then(Value::as_bool) == Some(true) {
+        return Err(CoreError::Agent(result.get("result").and_then(Value::as_str).unwrap_or("AI 응답 생성에 실패했습니다").to_string()));
+    }
     if let Some(so) = result.get("structured_output").filter(|v| v.is_object()) {
         return Ok(so.clone());
     }
@@ -209,7 +214,7 @@ mod tests {
     #[test]
     fn prompt_lists_matching_stacks_first() {
         let stacks = catalog::load().unwrap();
-        let req = StackRecommendRequest { description: "사내용 Windows 도구".into(), target_os: TargetOs::Windows, project_type: ProjectType::DesktopApp, provider: Provider::Claude };
+        let req = StackRecommendRequest {  account_id: None, description: "사내용 Windows 도구".into(), target_os: TargetOs::Windows, project_type: ProjectType::DesktopApp, provider: Provider::Claude };
         let p = build_prompt(&req, &stacks);
         assert!(p.contains("recommendations"));
         let first_line = p.lines().find(|l| l.starts_with("- id:")).unwrap();

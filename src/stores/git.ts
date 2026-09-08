@@ -35,6 +35,10 @@ interface GitState {
 }
 
 export const useGitStore = create<GitState>((set, get) => {
+  let projectVersion = 0;
+  let refreshVersion = 0;
+  let diffVersion = 0;
+  let logVersion = 0;
   const requireProject = (): string => {
     const id = get().projectId;
     if (!id) throw new Error("선택된 프로젝트가 없습니다.");
@@ -43,108 +47,99 @@ export const useGitStore = create<GitState>((set, get) => {
 
   const withBusy = async <T,>(name: string, fn: (id: string) => Promise<T>): Promise<T> => {
     const id = requireProject();
+    if (get().busy) throw new Error("진행 중인 저장 작업이 끝난 후 다시 시도해 주세요.");
+    const version = projectVersion;
     set({ busy: name, error: null });
     try {
       const out = await fn(id);
-      await get().refresh();
+      if (version === projectVersion) await get().refresh();
       return out;
     } catch (err) {
-      set({ error: String(err) });
+      if (version === projectVersion) set({ error: String(err) });
       throw err;
     } finally {
-      set({ busy: null });
+      if (version === projectVersion) set({ busy: null });
     }
   };
 
   return {
-    projectId: null,
-    status: null,
-    branches: [],
-    log: [],
-    selected: null,
-    diff: "",
-    diffLoading: false,
-    loading: false,
-    busy: null,
-    error: null,
+    projectId: null, status: null, branches: [], log: [], selected: null,
+    diff: "", diffLoading: false, loading: false, busy: null, error: null,
 
     setProject: (id) => {
       if (id === get().projectId) return;
-      set({ projectId: id, status: null, branches: [], log: [], selected: null, diff: "", error: null });
+      projectVersion++;
+      refreshVersion++;
+      diffVersion++;
+      logVersion++;
+      set({ projectId: id, status: null, branches: [], log: [], selected: null, diff: "", error: null, busy: null, loading: false, diffLoading: false });
     },
 
     refresh: async () => {
       const id = get().projectId;
       if (!id) return;
+      const version = ++refreshVersion;
+      const current = () => version === refreshVersion;
       set({ loading: true });
       try {
         const status = await ipc.git.status(id);
-        // Guard against a project switch while the request was in flight.
-        if (get().projectId !== id) return;
-        let branches: GitBranch[] = [];
-        if (status.is_repo) {
-          branches = await ipc.git.branches(id).catch(() => []);
-        }
+        if (!current()) return;
+        const branches = status.is_repo ? await ipc.git.branches(id) : [];
+        if (!current()) return;
         set({ status, branches, error: null });
-        // Re-fetch the diff of the selected file so it tracks the working tree.
         const sel = get().selected;
         if (sel) {
           const stillThere = status.files.some((f) => f.path === sel.path && (sel.staged ? f.staged : f.unstaged || f.untracked));
-          if (stillThere) {
-            const diff = await ipc.git.diff(id, sel.path, sel.staged).catch(() => "");
-            if (get().projectId === id) set({ diff });
-          } else {
-            set({ selected: null, diff: "" });
-          }
+          if (stillThere) await get().selectFile(sel);
+          else await get().selectFile(null);
         }
       } catch (err) {
-        if (get().projectId === id) set({ error: String(err) });
+        if (current()) set({ error: String(err) });
       } finally {
-        if (get().projectId === id) set({ loading: false });
+        if (current()) set({ loading: false });
       }
     },
 
     loadLog: async () => {
       const id = get().projectId;
       if (!id) return;
+      const version = ++logVersion;
       try {
         const log = await ipc.git.log(id, 50);
-        if (get().projectId === id) set({ log });
+        if (version === logVersion) set({ log });
       } catch (err) {
-        set({ error: String(err) });
+        if (version === logVersion) set({ error: String(err) });
       }
     },
 
     selectFile: async (file) => {
       const id = get().projectId;
-      set({ selected: file, diff: "" });
+      const version = ++diffVersion;
+      set({ selected: file, diff: "", diffLoading: !!file && !!id });
       if (!file || !id) return;
-      set({ diffLoading: true });
       try {
         const diff = await ipc.git.diff(id, file.path, file.staged);
-        if (get().selected?.path === file.path) set({ diff });
+        if (version === diffVersion) set({ diff });
       } catch (err) {
-        set({ error: String(err) });
+        if (version === diffVersion) set({ error: String(err) });
       } finally {
-        set({ diffLoading: false });
+        if (version === diffVersion) set({ diffLoading: false });
       }
     },
 
     stage: (paths) => withBusy("stage", (id) => ipc.git.stage(id, paths)),
     unstage: (paths) => withBusy("unstage", (id) => ipc.git.unstage(id, paths)),
-
     commit: (message, stageAll) =>
       withBusy("commit", async (id) => {
+        const version = projectVersion;
         if (stageAll) {
-          const st = get().status;
-          const paths = st?.files.filter((f) => f.unstaged || f.untracked).map((f) => f.path) ?? [];
+          const paths = get().status?.files.filter((f) => f.unstaged || f.untracked).map((f) => f.path) ?? [];
           if (paths.length) await ipc.git.stage(id, paths);
         }
         const out = await ipc.git.commit(id, message);
-        void get().loadLog();
+        if (version === projectVersion) void get().loadLog();
         return out;
       }),
-
     push: () => withBusy("push", (id) => ipc.git.push(id)),
     pull: () => withBusy("pull", (id) => ipc.git.pull(id)),
     fetch: () => withBusy("fetch", (id) => ipc.git.fetch(id)),

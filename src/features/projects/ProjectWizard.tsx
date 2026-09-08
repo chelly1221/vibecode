@@ -55,8 +55,11 @@ export function ProjectWizard() {
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open && !wasOpen.current) {
-      reset(settings);
-      setMaxReached(0);
+      const pending = useWizardStore.getState();
+      if (pending.scaffold.status !== "running" && !pending.planLoading && pending.autoStart !== "starting") {
+        reset(settings);
+        setMaxReached(0);
+      }
     }
     wasOpen.current = open;
   }, [open, reset, settings]);
@@ -123,12 +126,12 @@ export function ProjectWizard() {
   };
 
   const plan = () => {
-    void runPlan(settings?.default_provider ?? "claude");
+    void runPlan(form.provider ?? "claude");
   };
 
   const running = scaffold.status === "running" || autoStart === "starting";
   const quick = mode === "quick" && step < 5;
-  const canPlan = form.description.trim().length >= 4 && form.parentDir.trim().length > 0;
+  const canPlan = form.description.trim().length >= 4 && form.parentDir.trim().length > 0 && !!form.accounts[form.provider ?? "claude"];
 
   return (
     <>
@@ -138,7 +141,7 @@ export function ProjectWizard() {
             <DialogTitle>새 프로젝트</DialogTitle>
             {quick ? (
               <DialogDescription>
-                {quickView === "describe" ? "무엇을 만들지 한 줄로 적으면 AI가 이름, 폴더, 만드는 방식을 정하고 바로 만들기 시작합니다." : "구성을 확인하고 만들기를 누르세요. 없는 도구는 만들면서 자동으로 설치되고, 끝나면 첫 대화가 바로 시작됩니다."}
+                {quickView === "describe" ? "무엇을 만들지 한 줄로 적으면 AI가 만드는 방법을 제안합니다. 확인한 뒤 만들기를 시작할 수 있어요." : "구성을 확인하고 만들기를 누르세요. 없는 도구는 만들면서 자동으로 설치되고, 끝나면 첫 대화가 바로 시작됩니다."}
               </DialogDescription>
             ) : (
               <>
@@ -161,9 +164,9 @@ export function ProjectWizard() {
 
           {quick && quickView === "describe" && (
             <div className="flex items-center justify-between border-t pt-3">
-              <div className="text-xs text-muted-foreground">{!form.parentDir.trim() ? "프로젝트를 만들 폴더를 선택하세요." : ""}</div>
+              <div className="text-xs text-muted-foreground">{!form.accounts[form.provider ?? "claude"] ? "사용할 AI 계정을 선택하세요." : !form.parentDir.trim() ? "프로젝트를 만들 폴더를 선택하세요." : ""}</div>
               <Button onClick={plan} disabled={!canPlan || planLoading}>
-                {planLoading ? <Loader2 className="animate-spin" /> : <Sparkles />} AI가 구성하기
+                {planLoading ? <Loader2 className="animate-spin" /> : <Sparkles />} 만드는 방법 제안받기
               </Button>
             </div>
           )}

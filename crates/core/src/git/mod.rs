@@ -8,7 +8,6 @@ pub mod parse;
 use std::path::Path;
 use std::sync::Arc;
 
-use base64::Engine;
 
 use crate::backend::{CommandOutput, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
@@ -23,12 +22,15 @@ pub struct Git {
     pub bin: Option<String>,
     /// Commit author (name, email) applied with `-c` so a fresh environment can commit without global config.
     pub identity: Option<(String, String)>,
+    github_account: Option<String>,
 }
 
 impl Git {
     pub fn new(backend: Arc<ExecBackend>, bin: Option<String>) -> Self {
-        Git { backend, bin, identity: None }
+        Git { backend, bin, identity: None, github_account: None }
     }
+
+    pub fn with_github_account(mut self, id: Option<String>) -> Self { self.github_account = id; self }
 
     pub fn with_identity(mut self, name: Option<String>, email: Option<String>) -> Self {
         let name = name.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
@@ -191,27 +193,17 @@ impl Git {
         Ok(out.success())
     }
 
-    /// `-c http.extraheader=…` when `origin` is an HTTPS GitHub remote and a token is stored,
-    /// so pushes work without SSH keys or a credential helper. The token is never logged.
-    async fn auth_args(&self, repo: &Path) -> Vec<String> {
-        let Ok(Some(url)) = self.remote_url(repo, "origin").await else { return vec![] };
-        if !url.starts_with("https://github.com/") {
-            return vec![];
-        }
-        match crate::github::GitHubClient::from_keyring() {
-            Ok(Some(client)) => {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{}", client.token));
-                vec!["-c".into(), format!("http.extraheader=AUTHORIZATION: basic {b64}")]
-            }
-            _ => vec![],
-        }
-    }
-
     async fn run_remote(&self, repo: &Path, args: &[&str]) -> Result<String> {
-        let mut all: Vec<String> = self.auth_args(repo).await;
-        all.extend(args.iter().map(|s| s.to_string()));
-        let refs: Vec<&str> = all.iter().map(String::as_str).collect();
-        self.run_combined(repo, &refs).await
+        let mut spec = self.spec(Some(repo), args);
+        if self.github_account.is_some() {
+            let token = crate::accounts::github_client(self.github_account.as_deref()).await?
+                .ok_or_else(|| CoreError::msg("프로젝트에 선택된 GitHub 계정을 먼저 연결하세요"))?;
+            spec.env.extend(crate::accounts::github_environment(Some(&token.token)));
+        } else {
+            return Err(CoreError::msg("프로젝트에서 사용할 GitHub 계정을 먼저 선택하세요"));
+        }
+        let out = self.backend.run(&spec).await?.into_result()?;
+        Ok(format!("{}{}", out.stdout, out.stderr))
     }
 
     pub async fn push(&self, repo: &Path, set_upstream: bool) -> Result<String> {

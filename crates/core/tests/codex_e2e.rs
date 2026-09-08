@@ -10,6 +10,60 @@ fn backend() -> Arc<ExecBackend> {
     Arc::new(ExecBackend::new())
 }
 
+/// Verify a paid, authenticated model turn through the same adapter used by the UI.
+#[tokio::test]
+#[ignore]
+async fn e2e_authenticated_text_roundtrip() {
+    assert_eq!(std::env::var("VIBECODE_E2E").ok().as_deref(), Some("1"), "set VIBECODE_E2E=1 to authorize live AI calls");
+    use vibecode_core::agents::StartArgs;
+    use vibecode_core::types::{Effort, PermissionPreset, Provider, SessionConfig, SessionEvent};
+
+    let host = CodexHost::new();
+    let b = backend();
+    host.ensure_started(b.clone(), None).await.expect("start app-server");
+    if !host.account_logged_in().await.expect("account/read") {
+        host.shutdown().await;
+        panic!("Sign in to Codex in the Windows app before running live AI tests");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let session = host.start_session(StartArgs {
+        session_id: uuid::Uuid::new_v4().to_string(),
+        config: SessionConfig {
+            project_id: "live-test".into(), provider: Provider::Codex,
+            model: None, effort: Some(Effort::Low), permission: PermissionPreset::AskEverything,
+            append_system_prompt: None, resume_ref: None, fork: false,
+        },
+        cwd: dir.path().to_path_buf(), backend: b, bin: None, events: tx, mcp_servers: vec![],
+    }).await.expect("start session");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        session.send("Reply with exactly VIBECODE_LIVE_OK. Do not use tools.".into()).await.map_err(|e| e.to_string())?;
+        let mut text = String::new();
+        let mut initialized = false;
+        let mut streamed = false;
+        while let Some(event) = rx.recv().await {
+            match event {
+                SessionEvent::Init { provider: Provider::Codex, .. } => initialized = true,
+                SessionEvent::TextDelta { .. } => streamed = true,
+                SessionEvent::Text { text: block } => text.push_str(&block),
+                SessionEvent::Error { message, .. } => return Err(message),
+                SessionEvent::Exited { .. } => return Err("process exited before turn completed".into()),
+                SessionEvent::TurnEnd { usage, .. } => {
+                    if !initialized || !streamed || !text.contains("VIBECODE_LIVE_OK") || usage.output_tokens == 0 {
+                        return Err(format!("incomplete live response: init={initialized}, stream={streamed}, text={text:?}, usage={usage:?}"));
+                    }
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        Err("event channel closed before turn completed".into())
+    }).await;
+    let _ = session.close().await;
+    host.shutdown().await;
+    result.expect("live model turn timed out").expect("live model turn failed");
+}
+
 #[tokio::test]
 #[ignore]
 async fn e2e_app_server_handshake_and_models() {

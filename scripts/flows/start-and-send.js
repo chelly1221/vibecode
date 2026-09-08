@@ -1,6 +1,6 @@
 // Click 시작 in the new-session dialog, wait for the composer, send a prompt, wait for the reply.
 const dialog = document.querySelector("[role=dialog]");
-const start = [...dialog.querySelectorAll("button")].find((b) => b.textContent.trim() === "시작");
+const start = [...dialog.querySelectorAll("button")].find((b) => b.textContent.trim() === "대화 시작");
 vc.click(start);
 await vc.waitFor(() => !document.querySelector("[role=dialog]"), 15000);
 const ta = await vc.waitFor(() => document.querySelector("main textarea"), 30000);

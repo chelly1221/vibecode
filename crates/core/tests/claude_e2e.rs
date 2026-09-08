@@ -49,6 +49,9 @@ async fn wait_for(rx: &mut mpsc::UnboundedReceiver<SessionEvent>, secs: u64, pre
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let ev = tokio::time::timeout(remaining, rx.recv()).await.unwrap_or_else(|_| panic!("timed out; seen so far: {seen:#?}")).expect("channel closed");
         let done = pred(&ev);
+        if let SessionEvent::Error { message, .. } = &ev {
+            panic!("Claude live call failed: {message}");
+        }
         eprintln!("  event: {}", summarize(&ev));
         seen.push(ev);
         if done {

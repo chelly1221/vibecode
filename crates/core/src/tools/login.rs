@@ -12,17 +12,24 @@ use crate::context::AppContext;
 use crate::error::Result;
 use crate::types::{LoginEvent, Provider, PtyEvent, PtySpec};
 
-/// Running login flow (one per provider at a time).
+pub(crate) type LoginGuard = Arc<Mutex<Option<tokio::sync::OwnedMutexGuard<()>>>>;
+
+/// Running login flow (one at a time).
 pub struct LoginFlow {
     pub pty_id: String,
 }
 
 fn strip_ansi(s: &str) -> String {
     static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    static LINE_MOVE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    // ConPTY may move to the next screen row instead of emitting a newline.
+    // Dropping that movement joins the OAuth URL to the next instruction.
+    let line_move = LINE_MOVE.get_or_init(|| Regex::new(r"\x1b\[(?:[0-9]*;[0-9]*[Hf]|[0-9]*[BEF])").unwrap());
+    let s = line_move.replace_all(s, "\n");
     // CSI sequences, OSC sequences (BEL- or ST-terminated; OSC 8 hyperlinks wrap the sign-in URL),
     // charset selections and stray control bytes.
     let re = RE.get_or_init(|| Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b\x0c\x0e-\x1f]").unwrap());
-    re.replace_all(s, "").into_owned()
+    re.replace_all(&s, "").into_owned()
 }
 
 fn find_urls(text: &str) -> Vec<String> {
@@ -46,6 +53,8 @@ fn login_args(provider: Provider) -> (&'static str, Vec<String>) {
 /// Parser state shared with the PTY reader thread.
 #[derive(Default)]
 struct Scan {
+    /// An escape sequence may straddle reads from ConPTY.
+    escape_tail: String,
     /// Text since the last newline (URLs can be split across PTY chunks).
     partial: String,
     seen_urls: Vec<String>,
@@ -56,7 +65,21 @@ impl Scan {
     /// Feed raw PTY data; returns events to emit.
     fn feed(&mut self, raw: &str) -> Vec<LoginEvent> {
         let mut out = Vec::new();
-        let clean = strip_ansi(raw).replace('\r', "\n");
+        let mut raw = std::mem::take(&mut self.escape_tail) + raw;
+        if let Some(i) = raw.rfind('\x1b') {
+            let tail = &raw.as_bytes()[i..];
+            let incomplete = match tail.get(1) {
+                None => true,
+                Some(b'[') => !tail[2..].iter().any(|b| (0x40..=0x7e).contains(b)),
+                Some(b']') => !tail[2..].contains(&b'\x07') && !tail.windows(2).any(|w| w == b"\x1b\\"),
+                Some(b'(' | b')') => tail.len() < 3,
+                _ => false,
+            };
+            if incomplete {
+                self.escape_tail = raw.split_off(i);
+            }
+        }
+        let clean = strip_ansi(&raw).replace('\r', "\n");
         self.partial.push_str(&clean);
         // Only examine complete lines, plus the trailing partial for prompts.
         let mut lines: Vec<String> = self.partial.split('\n').map(String::from).collect();
@@ -85,6 +108,18 @@ impl Scan {
 
 /// Start the login command in a hidden PTY; `on_event` is called from the reader thread.
 pub async fn start(ctx: Arc<AppContext>, provider: Provider, on_event: Box<dyn Fn(LoginEvent) + Send + Sync + 'static>) -> Result<LoginFlow> {
+    start_for(ctx, provider, None, on_event).await
+}
+
+pub async fn start_for(ctx: Arc<AppContext>, provider: Provider, account_id: Option<String>, on_event: Box<dyn Fn(LoginEvent) + Send + Sync + 'static>) -> Result<LoginFlow> {
+    let login_guard = ctx.login_gate.clone().try_lock_owned().map_err(|_| crate::error::CoreError::msg("다른 로그인이 진행 중입니다. 해당 로그인 창을 닫고 잠시 후 다시 시도하세요"))?;
+    if let Some(id) = &account_id {
+        crate::accounts::ensure_not_live(&ctx, id).await?;
+        ctx.stop_account_hosts(id).await;
+    }
+    let login_guard: LoginGuard = Arc::new(Mutex::new(Some(login_guard)));
+    let callback_guard = login_guard.clone();
+    let backend = crate::accounts::agent_backend(&ctx, provider, account_id.as_deref())?;
     let (default_bin, args) = login_args(provider);
     let program = ctx.bin_override(provider).await.unwrap_or_else(|| default_bin.to_string());
     let spec = PtySpec { program: Some(program), args, cwd: None, cols: 120, rows: 30 };
@@ -95,9 +130,14 @@ pub async fn start(ctx: Arc<AppContext>, provider: Provider, on_event: Box<dyn F
     let id_for_cb = id_cell.clone();
     let ctx_for_exit = ctx.clone();
     let cb_events = on_event.clone();
-    let id = pty.open(
-        spec,
-        Box::new(move |ev| match ev {
+    // PTY callbacks run on an OS reader thread, outside the Tokio runtime.
+    let runtime = tokio::runtime::Handle::current();
+    on_event(LoginEvent::Started);
+    let exit_backend = backend.clone();
+    let id = pty.open_with_backend(
+        spec, &backend,
+        Box::new(move |ev| {
+            match ev {
             PtyEvent::Data { data } => {
                 // ConPTY holds output until the cursor-position query is answered.
                 if data.contains("\x1b[6n") {
@@ -111,21 +151,28 @@ pub async fn start(ctx: Arc<AppContext>, provider: Provider, on_event: Box<dyn F
                 }
             }
             PtyEvent::Exit { code } => {
+                // Release on the event, independent of ConPTY reader/callback destruction.
+                if let Ok(mut guard) = callback_guard.lock() { guard.take(); }
+                if let Some(id) = id_for_cb.lock().ok().and_then(|g| g.clone()) {
+                    if let Ok(mut guards) = ctx_for_exit.login_guards.lock() { guards.remove(&id); }
+                }
                 let ctx = ctx_for_exit.clone();
                 let events = cb_events.clone();
-                tokio::spawn(async move {
-                    let backend: Arc<ExecBackend> = ctx.backend().await;
+                let backend: Arc<ExecBackend> = exit_backend.clone();
+                runtime.spawn(async move {
                     let bin = ctx.bin_override(provider).await;
                     let status = crate::tools::auth_status(backend, provider, bin.as_deref()).await.ok();
                     events(LoginEvent::Finished { code, logged_in: status.as_ref().map(|s| s.logged_in).unwrap_or(false), account: status.and_then(|s| s.account) });
                 });
             }
-        }),
+        }}),
     )?;
     if let Ok(mut g) = id_cell.lock() {
         *g = Some(id.clone());
+        if let Ok(mut guards) = ctx.login_guards.lock() {
+            if login_guard.lock().map(|g| g.is_some()).unwrap_or(false) { guards.insert(id.clone(), login_guard.clone()); }
+        }
     }
-    on_event(LoginEvent::Started);
     Ok(LoginFlow { pty_id: id })
 }
 
@@ -136,12 +183,35 @@ pub fn submit_code(ctx: &AppContext, pty_id: &str, code: &str) -> Result<()> {
 
 /// Abort a running login.
 pub fn cancel(ctx: &AppContext, pty_id: &str) -> Result<()> {
-    ctx.pty.close(pty_id)
+    ctx.pty.close(pty_id)?;
+    // ConPTY EOF can be delayed after killing the child; cancellation must still unblock login.
+    if let Ok(mut guards) = ctx.login_guards.lock() {
+        if let Some(guard) = guards.remove(pty_id) {
+            if let Ok(mut guard) = guard.lock() { guard.take(); }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancel_releases_login_gate_even_when_reader_callback_is_retained() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ctx = AppContext::init(tmp.path().join("data")).await.unwrap();
+        let held = ctx.login_gate.clone().try_lock_owned().unwrap();
+        let guard: LoginGuard = Arc::new(Mutex::new(Some(held)));
+        // Simulate a ConPTY reader retaining its callback after the child is closed.
+        let reader_guard = guard.clone();
+        ctx.login_guards.lock().unwrap().insert("test-flow".into(), guard);
+        assert!(ctx.login_gate.try_lock().is_err());
+        cancel(&ctx, "test-flow").unwrap();
+        assert!(ctx.login_gate.try_lock().is_ok());
+        assert!(reader_guard.lock().unwrap().is_none());
+        cancel(&ctx, "test-flow").unwrap();
+    }
 
     #[test]
     fn strips_ansi_and_finds_urls_across_chunks() {
@@ -161,5 +231,40 @@ mod tests {
     fn login_commands_per_provider() {
         assert_eq!(login_args(Provider::Claude).1, vec!["auth", "login", "--claudeai"]);
         assert_eq!(login_args(Provider::Codex), ("codex", vec!["login".to_string()]));
+    }
+
+    #[test]
+    fn conpty_cursor_movement_terminates_login_url_even_across_reads() {
+        let mut s = Scan::default();
+        assert!(s.feed("https://auth.openai.com/oauth/authorize?originator=codex_cli_rs\x1b[9;").is_empty());
+        let events = s.feed("1HOn a remote or headless machine?\r\n");
+        assert!(events.iter().any(|e| matches!(e, LoginEvent::Url { url } if url == "https://auth.openai.com/oauth/authorize?originator=codex_cli_rs")));
+        assert!(events.iter().any(|e| matches!(e, LoginEvent::Output { line } if line == "On a remote or headless machine?")));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn login_exit_is_reported_from_pty_reader_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        let cli = dir.path().join("fake-login.cmd");
+        std::fs::write(&cli, "@echo off\r\nexit /b 1\r\n").unwrap();
+        let ctx = AppContext::init(dir.path().join("data")).await.unwrap();
+        let mut settings = ctx.settings().await;
+        settings.claude_bin = Some(cli.to_string_lossy().into_owned());
+        ctx.update_settings(settings).await.unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let flow = start(ctx.clone(), Provider::Claude, Box::new(move |e| { let _ = tx.send(e); })).await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            assert!(matches!(rx.recv().await, Some(LoginEvent::Started)));
+            loop {
+                if let Some(LoginEvent::Finished { code, logged_in, .. }) = rx.recv().await {
+                    assert_eq!(code, Some(1));
+                    assert!(!logged_in);
+                    break;
+                }
+            }
+        }).await;
+        let _ = cancel(&ctx, &flow.pty_id);
+        result.expect("login exit event must reach the GUI without a Tokio thread panic");
     }
 }

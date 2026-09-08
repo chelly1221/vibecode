@@ -18,20 +18,26 @@ pub async fn tools_detect(state: State<'_, AppState>) -> Result<Vec<ToolStatus>,
 
 /// Auth status of a provider's CLI (honouring the binary override from settings).
 #[tauri::command]
-pub async fn tools_auth_status(state: State<'_, AppState>, provider: Provider) -> Result<AuthStatus, String> {
-    let b = state.ctx.backend().await;
+pub async fn tools_auth_status(state: State<'_, AppState>, provider: Provider, account_id: Option<String>) -> Result<AuthStatus, String> {
+    let account_id = account_id.ok_or("사용할 계정을 먼저 선택하세요")?;
+    let b = vibecode_core::accounts::agent_backend(&state.ctx, provider, Some(&account_id)).map_err(err)?;
     let bin = state.ctx.bin_override(provider).await;
     vibecode_core::tools::auth_status(b, provider, bin.as_deref()).await.map_err(err)
 }
 
 #[tauri::command]
-pub async fn models_list(state: State<'_, AppState>, provider: Provider) -> Result<Vec<ModelInfo>, String> {
-    let b = state.ctx.backend().await;
+pub async fn models_list(state: State<'_, AppState>, provider: Provider, account_id: Option<String>, project_id: Option<String>) -> Result<Vec<ModelInfo>, String> {
+    if project_id.is_none() && account_id.is_none() {
+        return match provider { Provider::Claude => Ok(vibecode_core::tools::claude::list_models()), Provider::Codex => Ok(vec![]) };
+    }
+    let b = if let Some(id) = project_id { vibecode_core::accounts::project_backend(&state.ctx, &id).await.map_err(err)? }
+        else { vibecode_core::accounts::agent_backend(&state.ctx, provider, account_id.as_deref()).map_err(err)? };
     let bin = state.ctx.bin_override(provider).await;
     match provider {
         Provider::Codex => {
-            state.ctx.codex.ensure_started(b.clone(), bin.clone()).await.map_err(err)?;
-            state.ctx.codex.list_models().await.map_err(err)
+            let host = state.ctx.account_host(b.account_key()).await;
+            host.ensure_started(b.clone(), bin.clone()).await.map_err(err)?;
+            host.list_models().await.map_err(err)
         }
         Provider::Claude => vibecode_core::tools::list_models(b, provider, bin.as_deref()).await.map_err(err),
     }
@@ -67,8 +73,9 @@ pub async fn tools_install(state: State<'_, AppState>, name: String, on_event: C
 /// Start a GUI login for `provider`: the CLI runs in a hidden PTY and its URL / code prompt / exit are
 /// streamed as LoginEvents. Resolves with the login id used by `tools_login_code` / `tools_login_cancel`.
 #[tauri::command]
-pub async fn tools_login_start(state: State<'_, AppState>, provider: Provider, on_event: Channel<LoginEvent>) -> Result<String, String> {
-    let flow = vibecode_core::tools::login::start(state.ctx.clone(), provider, Box::new(move |e| {
+pub async fn tools_login_start(state: State<'_, AppState>, provider: Provider, account_id: Option<String>, on_event: Channel<LoginEvent>) -> Result<String, String> {
+    let account_id = Some(account_id.ok_or("로그인할 계정을 먼저 등록하세요")?);
+    let flow = vibecode_core::tools::login::start_for(state.ctx.clone(), provider, account_id, Box::new(move |e| {
         let _ = on_event.send(e);
     }))
     .await

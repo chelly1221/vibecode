@@ -1,0 +1,20 @@
+import { expect, it, vi } from "vitest";
+import { ipc, type SessionRecord } from "@/lib/ipc";
+import { useSessionsStore } from "../sessions";
+vi.mock("@/lib/ipc", () => ({ ipc: { sessions: { start: vi.fn(), send: vi.fn() } } }));
+vi.mock("@/lib/notify", () => ({ notify: vi.fn(), windowUnfocused: vi.fn() }));
+vi.mock("@/stores/app", () => ({ useAppStore: { getState: () => ({ loadSessions: async () => {}, activeSessionId: null }) } }));
+it("shares a resume between reconnect and send instead of launching two agents", async () => {
+  const record = { id: "resume-test", project_id: "p", provider: "claude", external_ref: "ref", permission: "auto_edit", total_cost_usd: 0 } as SessionRecord;
+  let resolve!: (record: SessionRecord) => void;
+  vi.mocked(ipc.sessions.start).mockReturnValue(new Promise((yes) => { resolve = yes; }));
+  vi.mocked(ipc.sessions.send).mockResolvedValue(undefined);
+  useSessionsStore.setState({ sessions: {} });
+  useSessionsStore.getState().ensure(record);
+  const reconnect = useSessionsStore.getState().resume(record.id);
+  const send = useSessionsStore.getState().send(record.id, "continue");
+  expect(ipc.sessions.start).toHaveBeenCalledTimes(1);
+  resolve(record);
+  await Promise.all([reconnect, send]);
+  expect(ipc.sessions.send).toHaveBeenCalledWith(record.id, "continue");
+});

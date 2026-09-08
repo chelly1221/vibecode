@@ -11,9 +11,10 @@ use crate::types::{AuthStatus, Provider};
 
 pub async fn auth_status(backend: Arc<ExecBackend>, bin: Option<&str>) -> Result<AuthStatus> {
     let spec = CommandSpec::new(bin.unwrap_or("codex")).args(["login", "status"]);
-    let out = match backend.run(&spec).await {
-        Ok(o) => o,
-        Err(e) => {
+    let out = match tokio::time::timeout(std::time::Duration::from_secs(30), backend.run(&spec)).await {
+        Ok(Ok(o)) => o,
+        Err(_) => return Ok(AuthStatus { provider: Provider::Codex, logged_in: false, method: None, account: None, detail: Some("Codex 로그인 상태 확인 시간이 초과됐습니다".into()) }),
+        Ok(Err(e)) => {
             return Ok(AuthStatus { provider: Provider::Codex, logged_in: false, method: None, account: None, detail: Some(format!("codex not available: {e}")) });
         }
     };

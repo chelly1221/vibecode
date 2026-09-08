@@ -1,6 +1,5 @@
-//! Watch what the real login CLIs print inside the hidden PTY (opens the browser; complete or ignore it).
+//! Verify real login completion inside the hidden PTY (requires browser approval).
 //! VIBECODE_E2E=1 WSLENV=VIBECODE_E2E cargo.exe test -p vibecode-core --test login_e2e -- --ignored --nocapture
-use std::sync::Arc;
 use std::time::Duration;
 
 use vibecode_core::tools::login;
@@ -26,19 +25,24 @@ async fn watch(provider: Provider, secs: u64) {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, rx.recv()).await {
             Ok(Some(ev)) => {
-                eprintln!("[{provider:?}] {ev:?}");
-                if matches!(ev, LoginEvent::Finished { .. }) {
-                    break;
+                // OAuth URLs, authorization codes and account details must not enter test logs.
+                match ev {
+                    LoginEvent::Finished { logged_in, .. } => {
+                        assert!(logged_in, "{provider:?} login finished without authentication");
+                        break;
+                    }
+                    LoginEvent::Url { .. } => eprintln!("[{provider:?}] browser authorization URL received"),
+                    LoginEvent::CodeRequested => eprintln!("[{provider:?}] authorization code requested"),
+                    _ => {}
                 }
             }
             _ => {
                 eprintln!("[{provider:?}] timeout; cancelling");
                 let _ = login::cancel(&ctx, &flow.pty_id);
-                break;
+                panic!("{provider:?} login did not finish; complete browser authorization before retrying");
             }
         }
     }
-    let _ = Arc::strong_count(&ctx);
 }
 
 #[tokio::test]
@@ -56,5 +60,5 @@ async fn codex_login_output() {
     if std::env::var("VIBECODE_E2E").ok().as_deref() != Some("1") {
         return;
     }
-    watch(Provider::Codex, 45).await;
+    watch(Provider::Codex, 180).await;
 }

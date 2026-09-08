@@ -23,21 +23,21 @@ export const PERMISSION_LABEL: Record<PermissionPreset, string> = {
   read_only: "읽기 전용",
   ask_everything: "매번 확인",
   auto_edit: "파일 수정 자동",
-  full_auto: "전부 자동",
+  full_auto: "AI에게 맡기기",
 };
 
 export const PERMISSION_HINT: Record<PermissionPreset, string> = {
   read_only: "계획만 세우고 파일을 바꾸지 않습니다.",
   ask_everything: "파일 수정과 명령 실행마다 승인을 요청합니다.",
   auto_edit: "파일 수정은 자동, 명령 실행은 승인을 요청합니다.",
-  full_auto: "위험: 모든 작업을 확인 없이 실행합니다.",
+  full_auto: "파일 수정과 프로그램 실행을 확인 없이 진행합니다.",
 };
 
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 
 export const DECISION_LABEL: Record<PermissionDecision, string> = {
   allow: "허용됨",
-  allow_session: "세션 동안 허용",
+  allow_session: "이 대화에서 허용",
   deny: "거부됨",
 };
 

@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 import { CheckIcon, CircleHelpIcon, SendIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import type { AgentQuestion, QuestionAnswer } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
@@ -62,7 +61,7 @@ export function QuestionCard({ questions, answered, answers, compact, disabled, 
     });
 
   const submit = async () => {
-    if (!onSubmit || !complete) return;
+    if (!onSubmit || !complete || busy || disabled) return;
     setBusy(true);
     try {
       await onSubmit(draftToAnswers(questions, drafts));
@@ -72,10 +71,10 @@ export function QuestionCard({ questions, answered, answers, compact, disabled, 
   };
 
   return (
-    <div className={cn("rounded-lg border bg-card text-sm", pending ? "border-sky-500/50 bg-sky-500/5" : "border-border", className)}>
+    <div className={cn("rounded-lg border bg-card text-sm", pending ? "border-primary/50 bg-primary/5" : "border-border", className)}>
       <div className="flex items-center gap-2 px-3 py-2">
-        <CircleHelpIcon className={cn("size-4 shrink-0", pending ? "text-sky-600 dark:text-sky-400" : "text-muted-foreground")} />
-        <span className="font-medium">에이전트의 질문</span>
+        <CircleHelpIcon className={cn("size-4 shrink-0", pending ? "text-primary" : "text-muted-foreground")} />
+        <span className="font-medium">AI가 확인하고 싶은 내용</span>
         <span className="text-xs text-muted-foreground">{questions.length}개</span>
         {answered && (
           <Badge variant="secondary" className="ml-auto shrink-0">
@@ -117,7 +116,7 @@ export function QuestionCard({ questions, answered, answers, compact, disabled, 
                         )}
                       >
                         {q.multi_select ? (
-                          <Checkbox checked={on} tabIndex={-1} className="pointer-events-none mt-0.5" aria-hidden />
+                          <span aria-hidden className={cn("mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border", on && "border-primary bg-primary text-primary-foreground")}>{on && <CheckIcon className="size-3" />}</span>
                         ) : (
                           <span className={cn("mt-1 flex size-3.5 shrink-0 items-center justify-center rounded-full border", on && "border-primary")}>
                             {on && <span className="size-2 rounded-full bg-primary" />}

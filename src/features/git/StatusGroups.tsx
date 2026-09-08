@@ -78,8 +78,8 @@ function Group({ title, files, staged, actionLabel, onAll, onOne }: GroupProps) 
               <Button
                 size="icon-xs"
                 variant="ghost"
-                className="absolute top-0.5 right-1 opacity-0 group-hover/file:opacity-100"
-                aria-label={staged ? "스테이지 해제" : "스테이지"}
+                className="absolute top-0.5 right-1 opacity-50 group-hover/file:opacity-100 focus-visible:opacity-100"
+                aria-label={staged ? "저장 대상에서 제외" : "포함"}
                 disabled={busy !== null}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -108,13 +108,13 @@ export function StatusGroups() {
   const run = (p: Promise<unknown>) => p.catch(() => undefined);
 
   if (status.files.length === 0) {
-    return <p className="px-3 py-6 text-center text-xs text-muted-foreground">변경 사항이 없습니다. 작업 트리가 깨끗합니다.</p>;
+    return <p className="px-3 py-6 text-center text-xs text-muted-foreground">변경 사항이 없습니다. 모든 변경이 저장되어 있어요.</p>;
   }
   return (
     <div className="pb-2">
-      <Group title="스테이지됨" files={staged} staged actionLabel="해제" onAll={() => run(unstage(staged.map((f) => f.path)))} onOne={(p) => run(unstage([p]))} />
-      <Group title="변경됨" files={changed} staged={false} actionLabel="스테이지" onAll={() => run(stage(changed.map((f) => f.path)))} onOne={(p) => run(stage([p]))} />
-      <Group title="추적 안 됨" files={untracked} staged={false} actionLabel="스테이지" onAll={() => run(stage(untracked.map((f) => f.path)))} onOne={(p) => run(stage([p]))} />
+      <Group title="저장할 변경" files={staged} staged actionLabel="해제" onAll={() => run(unstage(staged.map((f) => f.path)))} onOne={(p) => run(unstage([p]))} />
+      <Group title="변경됨" files={changed} staged={false} actionLabel="포함" onAll={() => run(stage(changed.map((f) => f.path)))} onOne={(p) => run(stage([p]))} />
+      <Group title="새 파일" files={untracked} staged={false} actionLabel="포함" onAll={() => run(stage(untracked.map((f) => f.path)))} onOne={(p) => run(stage([p]))} />
     </div>
   );
 }

@@ -46,7 +46,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeSessionId: null,
   wizardOpen: false,
   settingsOpen: false,
-  gitPanelOpen: true,
+  gitPanelOpen: false,
   terminalOpen: false,
   newSessionOpen: false,
   previewOpen: false,
@@ -75,17 +75,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({ sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions } }));
   },
   selectProject: (id) => {
-    set({ activeProjectId: id, activeSessionId: null });
+    if (get().activeProjectId === id) return;
+    set({ activeProjectId: id, activeSessionId: null, composerInsert: null, newSessionOpen: false });
     // Keep the two agent instruction files identical whenever a project comes into focus.
     if (id) ipc.projects.syncAgentDocs(id).catch(() => {});
   },
   selectSession: (id) => set({ activeSessionId: id }),
   setWizardOpen: (open) => set({ wizardOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
-  setGitPanelOpen: (open) => set({ gitPanelOpen: open }),
+  setGitPanelOpen: (open) => set({ gitPanelOpen: open, ...(open ? { filesPanelOpen: false, previewOpen: false } : {}) }),
   setTerminalOpen: (open) => set({ terminalOpen: open }),
   setNewSessionOpen: (open) => set({ newSessionOpen: open }),
-  setPreviewOpen: (open) => set({ previewOpen: open }),
+  setPreviewOpen: (open) => set({ previewOpen: open, ...(open ? { gitPanelOpen: false, filesPanelOpen: false } : {}) }),
   insertIntoComposer: (text) => set({ composerInsert: { text, nonce: Date.now() } }),
-  setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
+  setFilesPanelOpen: (open) => set({ filesPanelOpen: open, ...(open ? { gitPanelOpen: false, previewOpen: false } : {}) }),
 }));

@@ -3,4 +3,4 @@ import type { ProjectType } from "./ProjectType";
 import type { Provider } from "./Provider";
 import type { TargetOs } from "./TargetOs";
 
-export type StackRecommendRequest = { description: string, target_os: TargetOs, project_type: ProjectType, provider: Provider, };
+export type StackRecommendRequest = { account_id?: string | null, description: string, target_os: TargetOs, project_type: ProjectType, provider: Provider, };

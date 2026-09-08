@@ -67,7 +67,7 @@ export function FileTree({ relPath, depth }: Props) {
               ) : (
                 <span className="inline-block size-3 shrink-0" />
               )}
-              <Icon className={cn("size-3.5 shrink-0", e.is_dir ? "text-sky-600 dark:text-sky-400" : "text-muted-foreground")} />
+              <Icon className={cn("size-3.5 shrink-0", e.is_dir ? "text-primary" : "text-muted-foreground")} />
               <span className="truncate">{e.name}</span>
             </button>
             {e.is_dir && isOpen && <FileTree relPath={path} depth={depth + 1} />}

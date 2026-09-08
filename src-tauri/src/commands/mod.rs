@@ -1,5 +1,6 @@
 //! IPC surface. Command names are the contract with `src/lib/ipc.ts`; keep both in sync.
 
+pub mod accounts;
 pub mod checkpoints;
 pub mod env;
 pub mod fs;
@@ -14,6 +15,12 @@ pub mod tools;
 
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
+        accounts::accounts_list,
+        accounts::accounts_create,
+        accounts::accounts_remove,
+        accounts::accounts_project_get,
+        accounts::accounts_project_set,
+        accounts::accounts_session_get,
         settings::settings_get,
         settings::settings_set,
         tools::tools_detect,

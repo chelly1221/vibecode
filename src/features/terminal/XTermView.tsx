@@ -5,15 +5,9 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { ipc } from "@/lib/ipc";
-import { useAppStore } from "@/stores/app";
 import { useTerminalStore, type TerminalTab } from "@/stores/terminal";
 
-const LIGHT = { background: "#ffffff", foreground: "#1f1f1f", cursor: "#1f1f1f", selectionBackground: "#b4d5fe" };
-const DARK = { background: "#0b0b0c", foreground: "#e6e6e6", cursor: "#e6e6e6", selectionBackground: "#3a3d41" };
-
-function isDark() {
-  return document.documentElement.classList.contains("dark");
-}
+const DARK = { background: "#100b0e", foreground: "#eee7eb", cursor: "#f9a8d4", selectionBackground: "#54223e" };
 
 interface Props {
   tab: TerminalTab;
@@ -26,7 +20,6 @@ export function XTermView({ tab, active }: Props) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
-  const theme = useAppStore((s) => s.settings?.theme);
 
   // Create terminal + pty once per tab.
   useEffect(() => {
@@ -37,7 +30,7 @@ export function XTermView({ tab, active }: Props) {
       fontSize: 13,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: isDark() ? DARK : LIGHT,
+      theme: DARK,
       scrollback: 5000,
     });
     const fit = new FitAddon();
@@ -78,6 +71,7 @@ export function XTermView({ tab, active }: Props) {
               ptyIdRef.current = null;
             }
           },
+          tab.projectId,
         );
         if (disposed) {
           ipc.pty.close(ptyId).catch(() => {});
@@ -135,12 +129,6 @@ export function XTermView({ tab, active }: Props) {
     }, 30);
     return () => window.clearTimeout(t);
   }, [active]);
-
-  // Follow theme changes.
-  useEffect(() => {
-    const term = termRef.current;
-    if (term) term.options.theme = isDark() ? DARK : LIGHT;
-  }, [theme]);
 
   return <div ref={hostRef} className="h-full w-full" style={{ display: active ? "block" : "none" }} />;
 }

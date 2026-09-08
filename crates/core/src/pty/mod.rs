@@ -76,7 +76,13 @@ impl PtyManager {
 
     /// Open a pty; returns its id. `on_event` is called from a reader thread.
     pub fn open(&self, spec: PtySpec, on_event: PtyCallback) -> Result<String> {
-        let cmd = Self::build_command(&spec);
+        self.open_with_backend(spec, &crate::backend::ExecBackend::new(), on_event)
+    }
+
+    pub fn open_with_backend(&self, spec: PtySpec, backend: &crate::backend::ExecBackend, on_event: PtyCallback) -> Result<String> {
+        let mut cmd = Self::build_command(&spec);
+        for k in &backend.remove_environment { cmd.env_remove(k); }
+        for (k, v) in &backend.environment { cmd.env(k, v); }
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize { rows: spec.rows.max(2), cols: spec.cols.max(2), pixel_width: 0, pixel_height: 0 })

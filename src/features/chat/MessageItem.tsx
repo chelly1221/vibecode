@@ -17,7 +17,7 @@ export interface MessageItemProps {
   /** True while the session is running and this is the last item (for live indicators). */
   isLast: boolean;
   running: boolean;
-  onPermission: (requestId: string, decision: PermissionDecision, message?: string) => void;
+  onPermission: (requestId: string, decision: PermissionDecision, message?: string) => void | Promise<void>;
   onAnswer?: (requestId: string, answers: QuestionAnswer[]) => void | Promise<void>;
   subagents?: Record<string, SubagentState>;
 }

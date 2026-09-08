@@ -6,16 +6,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ipc, type AppSettings, type ToolStatus } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { EFFORT_OPTIONS, PERMISSION_OPTIONS, providerLabel } from "@/features/settings/options";
-import { AuthCards } from "./AuthCards";
-import { SshKeySection } from "@/features/settings/SshKeySection";
+import { AccountManager } from "@/features/accounts/AccountManager";
 import { DefaultsForm } from "./DefaultsForm";
 import { ToolsTable, toolFound } from "./ToolsTable";
 
 const STEPS = [
-  { id: "tools", title: "도구 확인", desc: "claude / codex / git 설치 상태" },
-  { id: "auth", title: "로그인", desc: "Claude 필수, Codex 선택" },
-  { id: "defaults", title: "기본값", desc: "모델 · effort · 권한 · 폴더" },
-  { id: "done", title: "완료", desc: "설정 요약" },
+  { id: "tools", title: "AI 준비하기", desc: "함께 쓸 AI를 고르고 설치해요" },
+  { id: "auth", title: "계정 연결", desc: "사용할 AI 하나만 연결하면 돼요" },
+  { id: "defaults", title: "내 작업 공간", desc: "저장 위치와 작업 방식을 정해요" },
+  { id: "done", title: "준비 완료", desc: "이제 아이디어를 만들어 보세요" },
 ] as const;
 
 /** First-run wizard. Shown while `settings.onboarding_done === false`. Everything runs on Windows. */
@@ -62,16 +61,16 @@ export function Onboarding() {
     }
   };
 
-  const claudeMissing = tools !== null && !toolFound(tools, "claude");
+  const providerMissing = tools !== null && !toolFound(tools, draft.default_provider);
   const gitMissing = tools !== null && !toolFound(tools, "git");
 
   const summary = useMemo(
     () => [
-      ["기본 에이전트", providerLabel(draft.default_provider)],
-      ["기본 모델", (draft.default_provider === "claude" ? draft.default_model_claude : draft.default_model_codex) ?? "CLI 기본값"],
-      ["Effort", EFFORT_OPTIONS.find((o) => o.value === draft.default_effort)?.label ?? draft.default_effort],
+      ["함께 작업할 AI", providerLabel(draft.default_provider)],
+      ["기본 모델", (draft.default_provider === "claude" ? draft.default_model_claude : draft.default_model_codex) ?? "자동 선택"],
+      ["생각하는 깊이", EFFORT_OPTIONS.find((o) => o.value === draft.default_effort)?.label ?? draft.default_effort],
       ["권한", PERMISSION_OPTIONS.find((o) => o.value === draft.default_permission)?.label ?? draft.default_permission],
-      ["프로젝트 폴더", draft.projects_root ?? "(미설정)"],
+      ["프로젝트 폴더", draft.projects_root ?? "프로젝트를 만들 때 선택"],
     ],
     [draft],
   );
@@ -132,12 +131,14 @@ export function Onboarding() {
               {step === 0 && (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Vibecoder는 Windows에 설치된 Claude Code · Codex · git을 직접 실행합니다. 없는 도구는 "설치"를 누르면 앱이 바로 설치합니다(관리자 권한 창이 뜨면 허용).
+                    사용할 AI를 하나 골라 주세요. 아직 설치하지 않았다면 아래 설치 버튼으로 준비할 수 있어요. 다른 AI는 나중에 추가할 수 있습니다.
                   </p>
-                  <ToolsTable tools={tools} loading={toolsLoading} onRefresh={detect} />
-                  {claudeMissing && (
+                  <div className="grid grid-cols-2 gap-3">{(["claude", "codex"] as const).map((provider) => <Button key={provider} variant={draft.default_provider === provider ? "default" : "outline"} aria-pressed={draft.default_provider === provider} onClick={() => patch({ default_provider: provider })}>{provider === "claude" ? "Claude 계정 사용" : "ChatGPT 계정으로 Codex 사용"}</Button>)}</div>
+                  <ToolsTable tools={tools?.filter((t) => t.name === draft.default_provider || t.name === "git") ?? null} loading={toolsLoading} onRefresh={detect} compact />
+                  <p className="text-xs text-muted-foreground">프로그램 제작에 필요한 나머지 도구는 프로젝트를 만들 때 준비합니다.</p>
+                  {providerMissing && (
                     <Alert variant="destructive">
-                      <AlertTitle>Claude Code가 없습니다</AlertTitle>
+                      <AlertTitle>{providerLabel(draft.default_provider)} 설치가 필요해요</AlertTitle>
                       <AlertDescription>
                         "설치"를 눌러 설치하세요. 설치가 끝나면 다음 단계에서 로그인합니다.
                       </AlertDescription>
@@ -145,8 +146,8 @@ export function Onboarding() {
                   )}
                   {gitMissing && (
                     <Alert>
-                      <AlertTitle>git이 없습니다</AlertTitle>
-                      <AlertDescription>Git for Windows를 설치하세요. git 패널, 체크포인트, GitHub 연동에 필요합니다 (Claude Code 자체는 없어도 동작합니다).</AlertDescription>
+                      <AlertTitle>변경 기록을 저장하려면 Git을 설치하세요</AlertTitle>
+                      <AlertDescription>프로그램이 바뀐 내용을 저장하고 이전 상태로 되돌릴 때 사용하는 도구입니다. 위의 Git 설치 버튼으로 준비할 수 있어요.</AlertDescription>
                     </Alert>
                   )}
                 </>
@@ -155,12 +156,9 @@ export function Onboarding() {
               {step === 1 && (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    "로그인"을 누르면 브라우저가 열립니다. 로그인 후 화면에 표시되는 인증 코드를 붙여넣으면 끝납니다.
+                    사용자별 계정을 등록하고 연결하세요. 각 프로젝트에서 사용할 계정은 따로 선택합니다.
                   </p>
-                  <AuthCards />
-                  <div className="rounded-xl border p-4">
-                    <SshKeySection />
-                  </div>
+                  <AccountManager />
                 </>
               )}
 
@@ -180,11 +178,11 @@ export function Onboarding() {
           </div>
 
           <footer className="flex shrink-0 items-center justify-between border-t px-8 py-4">
-            <Button variant="ghost" onClick={back} disabled={step === 0}>
+            <Button variant="ghost" onClick={back} disabled={step === 0 || saving}>
               <ArrowLeft className="size-4" /> 이전
             </Button>
             {step < STEPS.length - 1 ? (
-              <Button onClick={next} disabled={saving}>
+              <Button onClick={next} disabled={saving || (step === 0 && (toolsLoading || tools === null || providerMissing))}>
                 다음 <ArrowRight className="size-4" />
               </Button>
             ) : (

@@ -1,3 +1,4 @@
+import { AccountChoices } from "@/features/accounts/AccountChoices";
 // Quick mode, first screen: describe the program in plain language; the agent decides the rest.
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen, Loader2, Settings2 } from "lucide-react";
@@ -52,6 +53,8 @@ export function StepDescribe({ onAdvanced }: Props) {
 
   return (
     <div className="grid gap-5">
+      <label className="grid gap-1.5 text-sm">제안을 받을 AI<select className="h-9 rounded-md border bg-background px-3" value={form.provider ?? "claude"} disabled={planLoading} onChange={(e) => setField("provider", e.target.value as "claude" | "codex")}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+      <AccountChoices value={form.accounts} onChange={(v) => setField("accounts", v)} disabled={planLoading} />
       <div className="grid gap-2">
         <Label htmlFor="wz-describe" className="text-base">
           무엇을 만들까요?

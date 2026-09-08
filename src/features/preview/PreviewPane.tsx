@@ -2,7 +2,7 @@
 // is positioned over this pane, and lets the user pick elements / forward console errors to the agent.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertCircle, ExternalLink, MousePointerClick, Play, RefreshCw, Square, TerminalSquare, X } from "lucide-react";
+import { AlertCircle, Loader2, Settings2, ExternalLink, MousePointerClick, Play, RefreshCw, Square, TerminalSquare, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { useAppStore } from "@/stores/app";
 import { DEVICE_SIZES, usePreviewStore, type DevicePreset } from "@/stores/preview";
 
 let stacksCache: Promise<StackInfo[]> | null = null;
-const loadStacks = () => (stacksCache ??= ipc.projects.stacksList().catch(() => []));
+const loadStacks = () => (stacksCache ??= ipc.projects.stacksList().catch((e) => { stacksCache = null; throw e; }));
 
 const OVERLAY_SELECTOR = '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper], [data-slot="sheet-content"]';
 
@@ -33,18 +33,23 @@ export function PreviewPane() {
   const [hiddenByOverlay, setHiddenByOverlay] = useState(false);
   const autoOpened = useRef<string | null>(null);
 
-  // Prefill the dev command from the project's stack.
+  // Reset project-specific commands/URLs before loading this project's server state.
   useEffect(() => {
+    pv.setProject(project?.id ?? null);
+    autoOpened.current = null;
     if (!project) return;
-    pv.syncStatus(project.id);
-    if (!pv.command && project.stack_id) {
-      loadStacks().then((stacks) => {
-        const st = stacks.find((s) => s.id === project.stack_id);
-        if (st?.dev_command && !usePreviewStore.getState().command) {
-          pv.setCommand(st.dev_command);
-        }
-      });
-    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        await pv.syncStatus(project.id);
+        if (cancelled || !project.stack_id) return;
+        const stacks = await loadStacks();
+        if (cancelled) return;
+        const command = stacks.find((s) => s.id === project.stack_id)?.dev_command;
+        if (command && !usePreviewStore.getState().command) pv.setCommand(command);
+      } catch (e) { if (!cancelled) toast.error("미리보기 설정을 불러오지 못했어요", { description: String(e) }); }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
@@ -98,8 +103,11 @@ export function PreviewPane() {
   // Hide the native child webview while any dialog/popover is open (it would paint over them).
   useEffect(() => {
     if (!pv.webviewOpen) return;
+    let previous: boolean | null = null;
     const check = () => {
       const covered = !!document.querySelector(OVERLAY_SELECTOR);
+      if (covered === previous) return;
+      previous = covered;
       setHiddenByOverlay(covered);
       ipc.preview.setVisible(!covered).catch(() => {});
     };
@@ -111,13 +119,13 @@ export function PreviewPane() {
 
   // Auto-open once the dev server prints its URL.
   useEffect(() => {
-    if (pv.url && pv.running && autoOpened.current !== pv.url) {
+    if (pv.projectId === activeProjectId && pv.url && pv.running && autoOpened.current !== pv.url) {
       autoOpened.current = pv.url;
       const b = computeBounds();
-      if (b) pv.openUrl(pv.url, b).catch((e) => toast.error(`미리보기 열기 실패: ${String(e)}`));
+      if (b) pv.openUrl(pv.url, b).catch((e) => { autoOpened.current = null; toast.error(`미리보기 열기 실패: ${String(e)}`); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pv.url, pv.running]);
+  }, [pv.url, pv.running, pv.projectId, activeProjectId]);
 
   // Close the native webview when the pane unmounts.
   useEffect(() => () => void pv.closeWebview(), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,7 +148,7 @@ export function PreviewPane() {
     try {
       await pv.start(project.id);
     } catch (e) {
-      toast.error(`dev 서버 시작 실패: ${String(e)}`);
+      toast.error(`미리보기를 시작하지 못했어요: ${String(e)}`);
     }
   };
 
@@ -154,32 +162,24 @@ export function PreviewPane() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-1.5 text-xs">
-        <Input
-          value={pv.command}
-          onChange={(e) => pv.setCommand(e.target.value)}
-          placeholder="dev 서버 명령 (예: npm run dev)"
-          className="h-7 w-48 text-xs"
-          disabled={pv.running}
-        />
+        <span className="mr-1 font-semibold">미리보기</span>
         {pv.running ? (
-          <Button size="sm" variant="outline" onClick={() => pv.stop().catch((e) => toast.error(String(e)))}>
-            <Square className="size-3.5" /> 중지
-          </Button>
+          <Button size="sm" variant="outline" onClick={() => pv.stop().catch((e) => toast.error(String(e)))}><Square className="size-3.5" /> 멈추기</Button>
         ) : (
-          <Button size="sm" onClick={start} disabled={!project}>
-            <Play className="size-3.5" /> 시작
+          <Button size="sm" onClick={start} disabled={!project || pv.starting || !pv.command}>
+            {pv.starting ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} {pv.starting ? "준비 중…" : "미리보기 시작"}
           </Button>
         )}
-        <Input
-          value={pv.manualUrl || pv.url || ""}
-          onChange={(e) => pv.setManualUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && openManual()}
-          placeholder="http://localhost:5173"
-          className="h-7 min-w-40 flex-1 font-mono text-xs"
-        />
-        <Button size="sm" variant="outline" onClick={openManual}>
-          열기
-        </Button>
+        <Popover>
+          <PopoverTrigger asChild><Button variant="ghost" size="sm"><Settings2 className="size-3.5" /> 실행 설정</Button></PopoverTrigger>
+          <PopoverContent className="w-80 space-y-3">
+            <p className="text-sm font-medium">미리보기 실행 설정</p>
+            <p className="text-xs text-muted-foreground">보통 자동으로 설정됩니다. 모르는 경우 AI에게 “미리보기를 실행하려면 어떻게 해야 해?”라고 물어보세요.</p>
+            <label className="grid gap-1.5 text-xs">시작 명령<Input aria-label="미리보기 시작 명령" value={pv.command} onChange={(e) => pv.setCommand(e.target.value)} placeholder="예: npm run dev" disabled={pv.running || pv.starting} /></label>
+            <label className="grid gap-1.5 text-xs">직접 열 주소<Input aria-label="미리보기 주소" value={pv.manualUrl || pv.url || ""} onChange={(e) => pv.setManualUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void openManual()} placeholder="http://localhost:5173" /></label>
+            <Button size="sm" variant="outline" onClick={openManual}>이 주소 열기</Button>
+          </PopoverContent>
+        </Popover>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button size="icon-sm" variant="ghost" onClick={() => ipc.preview.reload().catch(() => {})} aria-label="새로고침" disabled={!pv.webviewOpen}>
@@ -212,7 +212,7 @@ export function PreviewPane() {
         <Tooltip>
           <TooltipTrigger asChild>
             <Button size="sm" variant={pv.picking ? "default" : "outline"} onClick={() => pv.togglePicking().catch(() => {})} disabled={!pv.webviewOpen}>
-              <MousePointerClick className="size-3.5" /> 요소 선택
+              <MousePointerClick className="size-3.5" /> 화면 선택
             </Button>
           </TooltipTrigger>
           <TooltipContent>미리보기에서 요소를 클릭하면 그 정보가 입력창에 들어갑니다 (Esc로 취소)</TooltipContent>
@@ -220,7 +220,7 @@ export function PreviewPane() {
         <Popover>
           <PopoverTrigger asChild>
             <Button size="sm" variant="ghost" className={cn(errors.length && "text-destructive")}>
-              <AlertCircle className="size-3.5" /> 콘솔
+              <AlertCircle className="size-3.5" /> 문제 확인
               {pv.console.length > 0 && (
                 <Badge variant={errors.length ? "destructive" : "secondary"} className="ml-1 px-1.5 py-0 text-[10px]">
                   {pv.console.length}
@@ -230,10 +230,10 @@ export function PreviewPane() {
           </PopoverTrigger>
           <PopoverContent align="end" className="w-[28rem] p-2">
             <div className="mb-2 flex items-center justify-between text-xs">
-              <span className="font-medium">미리보기 콘솔 (error / warn)</span>
+              <span className="font-medium">미리보기에서 발견한 문제</span>
               <div className="flex gap-1">
                 <Button size="sm" variant="outline" onClick={forwardConsole} disabled={!pv.console.length}>
-                  에이전트에게 전달
+                  AI에게 수정 요청
                 </Button>
                 <Button size="sm" variant="ghost" onClick={pv.clearConsole}>
                   지우기
@@ -245,10 +245,10 @@ export function PreviewPane() {
             </pre>
           </PopoverContent>
         </Popover>
-        <Button size="icon-sm" variant="ghost" onClick={() => setShowLogs((v) => !v)} aria-label="로그">
+        <Button size="icon-sm" variant="ghost" onClick={() => setShowLogs((v) => !v)} aria-label="실행 기록">
           <TerminalSquare className="size-4" />
         </Button>
-        <Button size="icon-sm" variant="ghost" onClick={() => { pv.closeWebview(); setPreviewOpen(false); }} aria-label="미리보기 닫기">
+        <Button size="icon-sm" variant="ghost" onClick={() => { setPreviewOpen(false); }} aria-label="미리보기 닫기">
           <X className="size-4" />
         </Button>
       </div>
@@ -257,8 +257,8 @@ export function PreviewPane() {
       <div ref={hostRef} className="relative min-h-0 flex-1 bg-muted/30">
         {!pv.webviewOpen && (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
-            <p>dev 서버를 시작하면 여기에 실시간 화면이 표시됩니다.</p>
-            <p className="text-xs">URL이 감지되면 자동으로 열리고, "요소 선택"으로 화면의 요소를 클릭해 에이전트에게 바로 지시할 수 있습니다.</p>
+            <MonitorPlayPlaceholder />
+            <p className="text-xs">만든 화면에서 바꾸고 싶은 부분을 선택해 AI에게 수정을 요청할 수 있어요.</p>
           </div>
         )}
         {pv.webviewOpen && hiddenByOverlay && (
@@ -267,11 +267,15 @@ export function PreviewPane() {
         {pv.picking && <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-primary/90 py-0.5 text-center text-[11px] text-primary-foreground">요소를 클릭하세요 · Esc 취소</div>}
       </div>
 
-      {showLogs && (
+      {(showLogs || (!pv.running && pv.logs.length > 0 && !pv.webviewOpen)) && (
         <pre className="max-h-40 shrink-0 overflow-auto border-t bg-muted/40 p-2 font-mono text-[11px] text-muted-foreground">
           {pv.logs.length ? pv.logs.slice(-200).join("\n") : "로그 없음"}
         </pre>
       )}
     </div>
   );
+}
+
+function MonitorPlayPlaceholder() {
+  return <><Play className="mb-2 size-8 text-primary" /><p className="text-base font-medium text-foreground">만든 결과를 여기서 확인하세요</p><p>위의 ‘미리보기 시작’을 누르면 화면이 열립니다.</p><p className="text-xs">웹 화면이 있는 프로젝트에서 사용할 수 있어요. 버튼이 비활성화되어 있다면 실행 설정을 확인해 주세요.</p></>;
 }

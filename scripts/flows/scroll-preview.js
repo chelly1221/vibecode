@@ -1,7 +1,7 @@
 // Close dialogs, select the project, open the git panel's file list and hover it so scrollbars show.
 if (document.querySelector("[role=dialog]")) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true })); await vc.sleep(500); }
 const aside = document.querySelector("aside");
-const pbtn = [...aside.querySelectorAll("button")].find((b) => b.textContent.includes("tauri-react"));
+const pbtn = [...aside.querySelectorAll("button")].find((b) => b.textContent.trim().startsWith("vibecode"));
 if (pbtn) vc.click(pbtn);
 await vc.sleep(3000);
 // hover the git panel scroll container (right aside) so the thumb becomes visible

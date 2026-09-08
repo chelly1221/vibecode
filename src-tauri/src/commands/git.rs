@@ -8,10 +8,11 @@ use crate::state::{err, AppState};
 
 async fn git_for(state: &State<'_, AppState>, project_id: &str) -> Result<(Git, PathBuf), String> {
     let project = state.ctx.db.get_project(project_id).map_err(err)?;
-    let backend = state.ctx.backend().await;
+    let backend = vibecode_core::accounts::project_backend(&state.ctx, project_id).await.map_err(err)?;
     let bin = state.ctx.git_bin().await;
     let settings = state.ctx.settings().await;
-    Ok((Git::new(backend, bin).with_identity(settings.git_user_name, settings.git_user_email), PathBuf::from(project.path)))
+    let accounts = vibecode_core::accounts::project(&state.ctx.db, project_id).map_err(err)?;
+    Ok((Git::new(backend, bin).with_github_account(accounts.github).with_identity(accounts.git_user_name.or(settings.git_user_name), accounts.git_user_email.or(settings.git_user_email)), PathBuf::from(project.path)))
 }
 
 #[tauri::command]
@@ -90,9 +91,10 @@ pub async fn git_log(state: State<'_, AppState>, project_id: String, limit: Opti
 /// Ask an agent (one-shot, no session) for a conventional commit message.
 #[tauri::command]
 pub async fn git_generate_commit_message(state: State<'_, AppState>, project_id: String, provider: Provider) -> Result<String, String> {
+    if vibecode_core::accounts::project(&state.ctx.db, &project_id).map_err(err)?.agent(provider).is_none() { return Err("프로젝트에서 사용할 AI 계정을 먼저 선택하세요".into()); }
     let (git, repo) = git_for(&state, &project_id).await?;
     let diff = git.diff_for_commit_message(&repo).await.map_err(err)?;
-    let backend = state.ctx.backend().await;
+    let backend = vibecode_core::accounts::project_backend(&state.ctx, &project_id).await.map_err(err)?;
     let bin = state.ctx.bin_override(provider).await;
     vibecode_core::agents::oneshot::commit_message(backend, provider, bin, &repo, &diff).await.map_err(err)
 }

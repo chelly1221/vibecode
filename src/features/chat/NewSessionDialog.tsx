@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useModels } from "@/hooks/useModels";
-import type { Provider, SessionConfig } from "@/lib/ipc";
+import { ipc, type ProjectAccounts, type Provider, type SessionConfig } from "@/lib/ipc";
+import { AccountChoices } from "@/features/accounts/AccountChoices";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
 import { useAppStore } from "@/stores/app";
@@ -33,11 +34,19 @@ export function NewSessionDialog() {
   const [model, setModel] = useState<string | null>(null);
   const [effort, setEffort] = useState<Effort | null>(null);
   const [permission, setPermission] = useState<PermissionPreset>("full_auto");
+  const [firstMessage, setFirstMessage] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const { models, loading } = useModels(open ? provider : null);
+  const [accounts, setAccounts] = useState<ProjectAccounts | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false; setAccounts(null); setAccountError(null);
+    if (open && projectId) ipc.accounts.project(projectId).then((a) => { if (!cancelled) setAccounts(a); }).catch((e) => { if (!cancelled) setAccountError(String(e)); });
+    return () => { cancelled = true; };
+  }, [open, projectId]);
+  const { models, loading } = useModels(open ? provider : null, accounts?.[provider]);
 
   // Reset to project/settings defaults each time the dialog opens.
   useEffect(() => {
@@ -46,6 +55,7 @@ export function NewSessionDialog() {
     setProvider(p);
     setPermission(project?.default_permission ?? settings?.default_permission ?? "full_auto");
     setEffort(project?.default_effort ?? settings?.default_effort ?? null);
+    setFirstMessage("");
     setSystemPrompt("");
     setAdvanced(false);
   }, [open, project, settings]);
@@ -62,7 +72,7 @@ export function NewSessionDialog() {
   const efforts = selectedModel && selectedModel.efforts.length ? EFFORTS.filter((e) => selectedModel.efforts.includes(e)) : EFFORTS;
 
   const submit = async () => {
-    if (!projectId) return;
+    if (!projectId || busy || !accounts?.[provider]) return;
     const config: SessionConfig = {
       project_id: projectId,
       provider,
@@ -75,9 +85,18 @@ export function NewSessionDialog() {
     };
     setBusy(true);
     try {
+      await ipc.accounts.setProject(projectId, accounts);
       const record = await startSession(config);
+      if (useAppStore.getState().activeProjectId !== projectId) return;
       selectSession(record.id);
       setOpen(false);
+      if (firstMessage.trim()) {
+        try { await useSessionsStore.getState().send(record.id, firstMessage.trim()); }
+        catch (e) {
+          useAppStore.getState().insertIntoComposer(firstMessage);
+          toast.error("대화는 열었지만 요청을 보내지 못했어요. 입력창에서 다시 보내 주세요.", { description: String(e) });
+        }
+      }
     } catch (e) {
       toast.error("세션을 시작할 수 없습니다", { description: String(e) });
     } finally {
@@ -87,21 +106,25 @@ export function NewSessionDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !busy && setOpen(v)}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>새 세션</DialogTitle>
-          <DialogDescription>{project ? `${project.name} 프로젝트에서 에이전트 세션을 시작합니다.` : "프로젝트를 먼저 선택하세요."}</DialogDescription>
+          <DialogTitle>AI와 새 대화</DialogTitle>
+          <DialogDescription>{project ? `${project.name} 프로젝트에서 원하는 작업을 말해 주세요.` : "프로젝트를 먼저 선택하세요."}</DialogDescription>
         </DialogHeader>
 
+        {accountError && <p role="alert" className="text-sm text-destructive">{accountError}</p>}
+        {accounts && <AccountChoices value={accounts} onChange={setAccounts} disabled={busy} />}
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>에이전트</Label>
+            <Label>함께 작업할 AI</Label>
             <div className="grid grid-cols-2 gap-2">
               {PROVIDERS.map((p) => (
                 <Button
                   key={p}
                   type="button"
                   variant={provider === p ? "default" : "outline"}
+                  aria-pressed={provider === p}
+                  disabled={busy}
                   onClick={() => setProvider(p)}
                   className="justify-center"
                 >
@@ -111,6 +134,17 @@ export function NewSessionDialog() {
             </div>
           </div>
 
+          <div className="grid gap-2">
+            <Label htmlFor="ns-request">무엇을 도와드릴까요? <span className="font-normal text-muted-foreground">(선택)</span></Label>
+            <Textarea id="ns-request" value={firstMessage} onChange={(e) => setFirstMessage(e.target.value)} disabled={busy} placeholder="예: 첫 화면에 예약 버튼을 추가해 줘" className="min-h-24" />
+          </div>
+          <p className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">작업 방식: {PERMISSION_LABEL[permission]} · {PERMISSION_HINT[permission]}</p>
+          <Collapsible open={advanced} onOpenChange={setAdvanced}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+              <ChevronRightIcon className={cn("size-3.5 transition-transform", advanced && "rotate-90")} />
+              고급 설정
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 grid gap-3">
           <div className="grid gap-1.5">
             <Label>모델</Label>
             <Select value={model ?? DEFAULT_OPTION} onValueChange={(v) => setModel(v === DEFAULT_OPTION ? null : v)}>
@@ -118,7 +152,7 @@ export function NewSessionDialog() {
                 <SelectValue placeholder={loading ? "불러오는 중…" : "모델"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={DEFAULT_OPTION}>기본값 (CLI 설정)</SelectItem>
+                <SelectItem value={DEFAULT_OPTION}>자동 선택 (권장)</SelectItem>
                 {models.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.label}
@@ -132,7 +166,7 @@ export function NewSessionDialog() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Effort</Label>
+              <Label>생각하는 깊이</Label>
               <Select value={effort ?? DEFAULT_OPTION} onValueChange={(v) => setEffort(v === DEFAULT_OPTION ? null : (v as Effort))}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -165,15 +199,10 @@ export function NewSessionDialog() {
           </div>
           <p className={cn("text-xs text-muted-foreground", permission === "full_auto" && "text-destructive")}>{PERMISSION_HINT[permission]}</p>
 
-          <Collapsible open={advanced} onOpenChange={setAdvanced}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              <ChevronRightIcon className={cn("size-3.5 transition-transform", advanced && "rotate-90")} />
-              고급 설정
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 grid gap-3">
+
               <div className="grid gap-1.5">
-                <Label htmlFor="ns-system">추가 시스템 프롬프트</Label>
-                <Textarea id="ns-system" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="이 세션에만 적용할 지시사항" className="min-h-20" />
+                <Label htmlFor="ns-system">AI에게 항상 지킬 내용</Label>
+                <Textarea id="ns-system" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="이 대화에서 지킬 내용 (선택)" className="min-h-20" />
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -183,9 +212,9 @@ export function NewSessionDialog() {
           <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
             취소
           </Button>
-          <Button onClick={() => void submit()} disabled={busy || !projectId}>
+          <Button onClick={() => void submit()} disabled={busy || !projectId || !accounts?.[provider]}>
             {busy && <Loader2Icon className="animate-spin" data-icon="inline-start" />}
-            시작
+            {busy ? "연결 중…" : firstMessage.trim() ? "요청 보내고 시작" : "대화 시작"}
           </Button>
         </DialogFooter>
       </DialogContent>

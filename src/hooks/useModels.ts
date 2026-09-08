@@ -1,58 +1,32 @@
-// Model list per provider, cached for the app lifetime.
-
-import { useCallback, useEffect, useState } from "react";
+// Model availability belongs to an account, not just a provider.
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ipc, type ModelInfo, type Provider } from "@/lib/ipc";
-
-const cache = new Map<Provider, ModelInfo[]>();
-const inflight = new Map<Provider, Promise<ModelInfo[]>>();
-
-export function fetchModels(provider: Provider, force = false): Promise<ModelInfo[]> {
+const cache = new Map<string, ModelInfo[]>();
+const inflight = new Map<string, Promise<ModelInfo[]>>();
+const keyFor = (provider: Provider, accountId?: string | null) => `${provider}:${accountId ?? "unselected"}`;
+export function fetchModels(provider: Provider, force = false, accountId?: string | null): Promise<ModelInfo[]> {
+  const key = keyFor(provider, accountId);
   if (!force) {
-    const hit = cache.get(provider);
-    if (hit) return Promise.resolve(hit);
-    const pending = inflight.get(provider);
-    if (pending) return pending;
+    const hit = cache.get(key); if (hit) return Promise.resolve(hit);
+    const pending = inflight.get(key); if (pending) return pending;
   }
-  const p = ipc.tools
-    .listModels(provider)
-    .then((models) => {
-      cache.set(provider, models);
-      return models;
-    })
-    .finally(() => inflight.delete(provider));
-  inflight.set(provider, p);
-  return p;
+  const p = ipc.tools.listModels(provider, accountId).then((models) => { if (inflight.get(key) === p) cache.set(key, models); return models; })
+    .finally(() => { if (inflight.get(key) === p) inflight.delete(key); });
+  inflight.set(key, p); return p;
 }
-
-export function useModels(provider: Provider | null) {
-  const [models, setModels] = useState<ModelInfo[]>(() => (provider ? cache.get(provider) ?? [] : []));
+export function useModels(provider: Provider | null, accountId?: string | null) {
+  const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(
-    (force = false) => {
-      if (!provider) {
-        setModels([]);
-        return;
-      }
-      const cached = cache.get(provider);
-      if (cached && !force) {
-        setModels(cached);
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      fetchModels(provider, force)
-        .then((m) => setModels(m))
-        .catch((e) => setError(String(e)))
-        .finally(() => setLoading(false));
-    },
-    [provider],
-  );
-
-  useEffect(() => {
-    load(false);
-  }, [load]);
-
+  const version = useRef(0);
+  const load = useCallback((force = false) => {
+    const request = ++version.current; setError(null);
+    if (!provider) { setModels([]); setLoading(false); return; }
+    setModels(cache.get(keyFor(provider, accountId)) ?? []); setLoading(true);
+    fetchModels(provider, force, accountId).then((m) => { if (request === version.current) setModels(m); })
+      .catch((e) => { if (request === version.current) setError(String(e)); })
+      .finally(() => { if (request === version.current) setLoading(false); });
+  }, [provider, accountId]);
+  useEffect(() => { load(); return () => { ++version.current; }; }, [load]);
   return { models, loading, error, reload: () => load(true) };
 }

@@ -61,7 +61,8 @@ pub async fn stacks_recommend(target_os: TargetOs, project_type: ProjectType) ->
 /// One-shot agent call ranking catalog stacks for a free-text description.
 #[tauri::command]
 pub async fn stacks_ai_recommend(state: State<'_, AppState>, req: StackRecommendRequest) -> Result<Vec<StackRecommendation>, String> {
-    let backend = state.ctx.backend().await;
+    if req.account_id.is_none() { return Err("추천을 받을 AI 계정을 먼저 선택하세요".into()); }
+    let backend = vibecode_core::accounts::agent_backend(&state.ctx, req.provider, req.account_id.as_deref()).map_err(err)?;
     let bin = state.ctx.bin_override(req.provider).await;
     vibecode_core::projects::ai_recommend::recommend(backend, bin, req).await.map_err(err)
 }

@@ -15,6 +15,8 @@ async fn recommend_via_claude_natively() {
     }
     let b: Arc<ExecBackend> = Arc::new(ExecBackend::new());
     let req = StackRecommendRequest {
+
+        account_id: None,
         description: "사내 문서를 자동으로 정리해 주는 Windows 데스크톱 도구. 가볍고 빠르면 좋고 Rust를 선호합니다.".into(),
         target_os: TargetOs::Windows,
         project_type: ProjectType::DesktopApp,

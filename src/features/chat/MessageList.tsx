@@ -17,7 +17,7 @@ export function MessageList({
   onAnswer,
 }: {
   session: SessionState;
-  onPermission: (requestId: string, decision: PermissionDecision, message?: string) => void;
+  onPermission: (requestId: string, decision: PermissionDecision, message?: string) => void | Promise<void>;
   onAnswer?: (requestId: string, answers: QuestionAnswer[]) => void | Promise<void>;
 }) {
   const ref = useRef<HTMLDivElement>(null);

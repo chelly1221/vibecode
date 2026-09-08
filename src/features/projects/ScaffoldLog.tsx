@@ -7,7 +7,8 @@ import type { ScaffoldState } from "@/stores/wizard";
 export function ScaffoldLog({ scaffold }: { scaffold: ScaffoldState }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const box = endRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
   }, [scaffold.logs.length]);
 
   return (
@@ -27,7 +28,7 @@ export function ScaffoldLog({ scaffold }: { scaffold: ScaffoldState }) {
               ) : (
                 <CircleDashed className="size-4 text-muted-foreground" />
               )}
-              <span className={cn(!st.done && !running && "text-muted-foreground")}>{st.name}</span>
+              <span className={cn(!st.done && !running && "text-muted-foreground")}>{({ "검증": "프로젝트 설정 확인", "스캐폴딩": "기본 파일 만들기", "에이전트 문서 생성": "AI 작업 안내 준비", "git 초기화": "변경 기록 준비", "등록": "프로젝트 등록" } as Record<string, string>)[st.name] ?? st.name}</span>
             </li>
           );
         })}
@@ -37,7 +38,8 @@ export function ScaffoldLog({ scaffold }: { scaffold: ScaffoldState }) {
           </li>
         )}
       </ol>
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-zinc-950 p-2 font-mono text-[11px] leading-5 text-zinc-200">
+      <details className="rounded-lg border p-3" open={scaffold.status === "failed"}><summary className="cursor-pointer text-xs text-muted-foreground">실행 기록 자세히 보기</summary>
+      <div ref={endRef} className="mt-2 max-h-52 min-h-0 overflow-auto rounded-md border bg-zinc-950 p-2 font-mono text-[11px] leading-5 text-zinc-200">
         {scaffold.logs.length === 0 ? (
           <span className="text-zinc-500">출력이 여기에 표시됩니다.</span>
         ) : (
@@ -47,8 +49,8 @@ export function ScaffoldLog({ scaffold }: { scaffold: ScaffoldState }) {
             </div>
           ))
         )}
-        <div ref={endRef} />
       </div>
+      </details>
     </div>
   );
 }

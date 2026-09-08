@@ -791,6 +791,8 @@ function configForResume(st: SessionState): SessionConfig {
   };
 }
 
+const resuming = new Map<string, Promise<SessionRecord>>();
+
 export const useSessionsStore = create<SessionsStore>((set, get) => ({
   sessions: {},
 
@@ -866,7 +868,12 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     const st = get().sessions[id];
     if (!st) throw new Error("세션 정보를 찾을 수 없습니다");
     if (st.live) return st.record;
-    return get().startSession(configForResume(st), { fromSessionId: id });
+    const pending = resuming.get(id);
+    if (pending) return pending;
+    const request = get().startSession(configForResume(st), { fromSessionId: id });
+    resuming.set(id, request);
+    try { return await request; }
+    finally { if (resuming.get(id) === request) resuming.delete(id); }
   },
 
   loadHistory: async (record) => {
@@ -902,7 +909,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
       await ipc.sessions.send(id, text);
       return;
     }
-    const rec = await get().startSession(configForResume(st), { fromSessionId: id });
+    const rec = await get().resume(id);
     await ipc.sessions.send(rec.id, text);
   },
 

@@ -52,6 +52,12 @@ describe("dir names for tools", () => {
     expect(validateDirName("inventory-app")).toBeNull();
     expect(validateDirName("재고")).not.toBeNull();
     expect(validateDirName("-bad")).not.toBeNull();
+    for (const name of ["con.txt", "aux.log", "com1", "lpt9.backup", "app.", "_app", "MyApp"]) {
+      expect(validateDirName(name)).not.toBeNull();
+    }
+    expect(validateDirName("a".repeat(65))).not.toBeNull();
+    expect(validateProjectName("bad\nname")).not.toBeNull();
+    expect(validateProjectName("가".repeat(100))).toBeNull();
     expect(validateProjectName("재고 관리 앱")).toBeNull();
   });
 });

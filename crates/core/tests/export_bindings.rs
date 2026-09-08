@@ -10,7 +10,7 @@ fn export_bindings() {
         ($($t:ty),* $(,)?) => { $( <$t as TS>::export_all(&cfg).expect(stringify!($t)); )* };
     }
     export!(
-        Provider, Effort, PermissionPreset, AppSettings, ToolStatus, AuthStatus, ModelInfo,
+        AccountKind, AccountProfile, ProjectAccounts, Provider, Effort, PermissionPreset, AppSettings, ToolStatus, AuthStatus, ModelInfo,
         TargetOs, ProjectType, StackInfo, ProjectRecord, CreateProjectRequest, ScaffoldEvent, SessionConfig,
         SessionConfigPatch, SessionRecord, MessageKind, MessageRecord, PermissionKind, PermissionDecision,
         PermissionReply, PlanStep, Usage, SessionEvent, GitFileStatus, GitStatus, GitBranch, GitCommit, GitHubUser,

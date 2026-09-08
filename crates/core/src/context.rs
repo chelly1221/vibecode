@@ -22,8 +22,11 @@ pub struct AppContext {
     backend: Arc<ExecBackend>,
     pub sessions: SessionManager,
     pub permission: RwLock<Option<Arc<PermissionBroker>>>,
-    pub codex: CodexHost,
+    account_hosts: tokio::sync::Mutex<std::collections::HashMap<String, Arc<CodexHost>>>,
     pub pty: Arc<PtyManager>,
+    pub login_gate: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) login_guards: std::sync::Mutex<std::collections::HashMap<String, crate::tools::login::LoginGuard>>,
+    pub account_changes: tokio::sync::Mutex<()>,
     pub preview: Arc<DevServerManager>,
     /// Keeps CLAUDE.md / AGENTS.md identical in every registered project.
     pub docs_sync: crate::projects::docs_sync::DocsWatcher,
@@ -33,7 +36,9 @@ impl AppContext {
     pub async fn init(data_dir: PathBuf) -> Result<Arc<AppContext>> {
         std::fs::create_dir_all(&data_dir)?;
         let db = Db::open(&data_dir.join("vibecode.db"))?;
-        let settings = db.get_settings().unwrap_or_default();
+        crate::accounts::migrate(&db)?;
+        let mut settings = db.get_settings().unwrap_or_default();
+        settings.theme = "dark".into();
         let backend = Arc::new(ExecBackend::new());
         let docs_sync = crate::projects::docs_sync::DocsWatcher::new();
         for p in db.list_projects().unwrap_or_default() {
@@ -50,8 +55,11 @@ impl AppContext {
             backend,
             sessions: SessionManager::new(),
             permission: RwLock::new(None),
-            codex: CodexHost::new(),
+            account_hosts: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             pty: Arc::new(PtyManager::new()),
+            login_gate: Arc::new(tokio::sync::Mutex::new(())),
+            login_guards: std::sync::Mutex::new(std::collections::HashMap::new()),
+            account_changes: tokio::sync::Mutex::new(()),
             preview: Arc::new(DevServerManager::new()),
             docs_sync,
         }))
@@ -62,14 +70,28 @@ impl AppContext {
     }
 
     /// Persist settings. A changed codex binary takes effect on the next app-server start.
-    pub async fn update_settings(&self, new: AppSettings) -> Result<AppSettings> {
+    pub async fn update_settings(&self, mut new: AppSettings) -> Result<AppSettings> {
+        new.theme = "dark".into();
         let codex_changed = self.settings.read().await.codex_bin != new.codex_bin;
         self.db.set_settings(&new)?;
         if codex_changed {
-            self.codex.shutdown().await;
+            let hosts: Vec<_> = self.account_hosts.lock().await.drain().map(|(_,h)| h).collect();
+            for host in hosts { host.shutdown().await; }
         }
         *self.settings.write().await = new.clone();
         Ok(new)
+    }
+
+    pub async fn account_host(&self, key: &str) -> Arc<CodexHost> {
+        self.account_hosts.lock().await.entry(key.to_string()).or_insert_with(|| Arc::new(CodexHost::new())).clone()
+    }
+
+    pub async fn stop_account_hosts(&self, id: &str) {
+        let mut hosts = self.account_hosts.lock().await;
+        let keys: Vec<_> = hosts.keys().filter(|k| k.contains(id)).cloned().collect();
+        let removed: Vec<_> = keys.iter().filter_map(|k| hosts.remove(k)).collect();
+        drop(hosts);
+        for host in removed { host.shutdown().await; }
     }
 
     pub async fn backend(&self) -> Arc<ExecBackend> {
@@ -108,6 +130,7 @@ impl AppContext {
     pub async fn shutdown(&self) {
         self.preview.stop_all().await;
         self.sessions.close_all().await;
-        self.codex.shutdown().await;
+        let hosts: Vec<_> = self.account_hosts.lock().await.drain().map(|(_,h)| h).collect();
+        for host in hosts { host.shutdown().await; }
     }
 }

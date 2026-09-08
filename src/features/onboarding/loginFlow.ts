@@ -43,7 +43,7 @@ export function loginHint(state: LoginState): string {
     case "browser":
       return "브라우저에서 로그인을 진행하세요. 창이 열리지 않았다면 아래 버튼으로 여세요.";
     case "code":
-      return "브라우저에 표시된 인증 코드를 붙여넣고 확인을 누르세요.";
+      return "브라우저에서 로그인을 완료해 주세요. 자동으로 연결되며, 인증 코드가 표시된 경우에만 아래에 입력하세요.";
     case "finished":
       return state.result?.loggedIn ? `로그인되었습니다${state.result.account ? ` · ${state.result.account}` : ""}` : "로그인이 끝나지 않았습니다. 다시 시도하세요.";
   }

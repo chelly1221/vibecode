@@ -152,7 +152,8 @@ pub async fn plan(ctx: Arc<AppContext>, req: ProjectPlanRequest) -> Result<Proje
         return Err(CoreError::msg("무엇을 만들지 조금 더 자세히 적어 주세요 (예: 부서 비품을 등록하고 대여 기록을 남기는 웹앱)"));
     }
     let stacks = catalog::load()?;
-    let backend = ctx.backend().await;
+    if req.account_id.is_none() { return Err(CoreError::msg("구성을 제안할 AI 계정을 먼저 선택하세요")); }
+    let backend = crate::accounts::agent_backend(&ctx, req.provider, req.account_id.as_deref())?;
 
     // Environment facts (best effort, bounded).
     let tools = tokio::time::timeout(Duration::from_secs(25), crate::tools::detect_all(backend.clone())).await.unwrap_or_default();

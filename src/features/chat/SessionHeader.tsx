@@ -1,7 +1,8 @@
+import { ipc, type ProjectAccounts } from "@/lib/ipc";
 // Top bar of a session: provider, title, model / effort / permission controls, usage and actions.
 
-import { useMemo } from "react";
-import { BotIcon, Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BotIcon, Settings2Icon, Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,12 +50,23 @@ export function SessionHeader({
   subagentsOpen?: boolean;
   onToggleSubagents?: () => void;
 }) {
+  const [showSettings, setShowSettings] = useState(false);
   const updateConfig = useSessionsStore((s) => s.updateConfig);
   const subagentCount = Object.keys(session.subagents).length;
   const subagentRunning = runningSubagents(session.subagents);
   const interrupt = useSessionsStore((s) => s.interrupt);
   const closeSession = useSessionsStore((s) => s.closeSession);
-  const { models, loading } = useModels(session.record.provider);
+  const [accounts, setAccounts] = useState<ProjectAccounts | null>(null);
+  const [accountName, setAccountName] = useState<string>("");
+  useEffect(() => {
+    let cancelled = false; setAccounts(null); setAccountName("");
+    Promise.all([ipc.accounts.session(session.record.id), ipc.accounts.list()]).then(([a, profiles]) => {
+      if (cancelled) return; setAccounts(a);
+      setAccountName(profiles.find((p) => p.id === a[session.record.provider])?.name ?? "계정 선택 필요");
+    }).catch(() => { if (!cancelled) setAccountName("계정 확인 실패"); });
+    return () => { cancelled = true; };
+  }, [session.record.id, session.record.provider]);
+  const { models, loading } = useModels(session.record.provider, accounts?.[session.record.provider]);
   const id = session.record.id;
 
   const modelOptions = useMemo(() => {
@@ -74,6 +86,7 @@ export function SessionHeader({
   return (
     <div className="flex flex-wrap items-center gap-2 border-b bg-background px-3 py-2 text-sm">
       <ProviderBadge provider={session.record.provider} />
+      <span className="max-w-40 truncate text-xs text-muted-foreground" title={`이 대화의 계정: ${accountName}`}>{accountName}</span>
       <span
         className={cn("size-2 rounded-full", session.live ? (session.running ? "animate-pulse bg-emerald-500" : "bg-emerald-500") : "bg-muted-foreground/40")}
         title={session.live ? (session.running ? "작업 중" : "연결됨") : "연결 안 됨"}
@@ -83,7 +96,11 @@ export function SessionHeader({
       </span>
       {session.starting && <Loader2Icon className="size-3.5 animate-spin text-muted-foreground" />}
 
+      <span className="text-xs text-muted-foreground" role="status">{session.starting ? "연결 중" : session.pendingPermissions.length || session.pendingQuestions.length ? "답변을 기다리고 있어요" : session.running ? "AI가 작업하고 있어요" : "요청을 입력해 주세요"}</span>
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <Button size="sm" variant={showSettings ? "secondary" : "ghost"} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}><Settings2Icon /> 대화 설정</Button>
+        {showSettings && <>
+
         <Select
           value={session.model ?? DEFAULT_OPTION}
           onValueChange={(v) => run(updateConfig(id, { model: v === DEFAULT_OPTION ? null : v }), "모델 변경")}
@@ -104,13 +121,13 @@ export function SessionHeader({
 
         <Select
           value={session.effort ?? DEFAULT_OPTION}
-          onValueChange={(v) => run(updateConfig(id, { effort: v === DEFAULT_OPTION ? null : (v as Effort) }), "Effort 변경")}
+          onValueChange={(v) => run(updateConfig(id, { effort: v === DEFAULT_OPTION ? null : (v as Effort) }), "생각하는 깊이 변경")}
         >
-          <SelectTrigger size="sm" title="Effort">
-            <SelectValue placeholder="Effort" />
+          <SelectTrigger size="sm" title="생각하는 깊이">
+            <SelectValue placeholder="생각하는 깊이" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={DEFAULT_OPTION}>Effort 기본값</SelectItem>
+            <SelectItem value={DEFAULT_OPTION}>생각하는 깊이: 기본값</SelectItem>
             {efforts.map((e) => (
               <SelectItem key={e} value={e}>
                 {EFFORT_LABEL[e]} <span className="text-muted-foreground">({e})</span>
@@ -151,6 +168,7 @@ export function SessionHeader({
           </TooltipContent>
         </Tooltip>
 
+        </>}
         {subagentCount > 0 && onToggleSubagents && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -165,7 +183,7 @@ export function SessionHeader({
             <TooltipContent>서브에이전트 작동창 {subagentRunning > 0 ? `(${subagentRunning}개 작동 중)` : ""}</TooltipContent>
           </Tooltip>
         )}
-        <CheckpointsPopover projectId={session.record.project_id} sessionId={session.record.id} />
+        <CheckpointsPopover key={id} projectId={session.record.project_id} sessionId={session.record.id} />
 
         {session.running && (
           <Button size="sm" variant="destructive" onClick={() => run(interrupt(id), "중단")}>
@@ -176,11 +194,11 @@ export function SessionHeader({
         {session.live && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon-sm" variant="ghost" onClick={() => run(closeSession(id), "세션 종료")} aria-label="세션 프로세스 종료">
+              <Button size="icon-sm" variant="ghost" onClick={() => run(closeSession(id), "세션 종료")} aria-label="AI 연결 종료">
                 <PowerIcon />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>에이전트 프로세스 종료 (대화는 유지됨)</TooltipContent>
+            <TooltipContent>AI 연결 종료 (대화 기록은 유지됩니다)</TooltipContent>
           </Tooltip>
         )}
       </div>

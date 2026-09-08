@@ -1,3 +1,4 @@
+import { AccountChoices } from "@/features/accounts/AccountChoices";
 import { useEffect, useState } from "react";
 import { Loader2, Lock } from "lucide-react";
 import { Label } from "@/components/ui/label";
@@ -33,31 +34,31 @@ export function StepOptions() {
   const [modelsLoading, setModelsLoading] = useState(false);
 
   useEffect(() => {
-    ipc.github
-      .whoami()
-      .then(setGhUser)
-      .catch(() => setGhUser(null));
-  }, []);
+    let cancelled = false; setGhUser(undefined);
+    ipc.github.whoami(form.accounts.github).then((u) => { if (!cancelled) setGhUser(u); }).catch(() => { if (!cancelled) setGhUser(null); });
+    return () => { cancelled = true; };
+  }, [form.accounts.github]);
 
   const provider: Provider = form.provider ?? settings?.default_provider ?? "claude";
   useEffect(() => {
     let cancelled = false;
     setModelsLoading(true);
     ipc.tools
-      .listModels(provider)
+      .listModels(provider, form.accounts[provider])
       .then((m) => !cancelled && setModels(m))
       .catch(() => !cancelled && setModels([]))
       .finally(() => !cancelled && setModelsLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [provider]);
+  }, [provider, form.accounts]);
 
   const selectedModel = models.find((m) => m.id === form.model);
   const efforts = selectedModel && selectedModel.efforts.length > 0 ? EFFORT_OPTIONS.filter((e) => selectedModel.efforts.includes(e.value)) : EFFORT_OPTIONS;
 
   return (
     <div className="grid gap-4">
+      <AccountChoices value={form.accounts} onChange={(v) => setField("accounts", v)} />
       <section className="grid gap-2">
         <h3 className="text-sm font-medium">저장소</h3>
         <SwitchRow id="opt-git" label="git 초기화" description="main 브랜치로 저장소를 만들고 첫 커밋을 남깁니다." checked={form.gitInit} onChange={(v) => setField("gitInit", v)} />

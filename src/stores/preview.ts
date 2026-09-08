@@ -34,6 +34,8 @@ interface PreviewState {
   projectId: string | null;
   command: string;
   running: boolean;
+  starting: boolean;
+  setProject: (projectId: string | null) => void;
   url: string | null;
   manualUrl: string;
   logs: string[];
@@ -66,10 +68,21 @@ export function describePick(p: PickedElement): string {
   return `[미리보기에서 선택한 요소] <${p.tag}${p.id ? "#" + p.id : ""}${cls}>${label}${comp ? ` · React 컴포넌트 ${comp}${where}` : ""} · 위치 ${p.selector} · 페이지 ${p.url}\n이 요소를 다음과 같이 바꿔줘: `;
 }
 
+let statusVersion = 0;
+let webviewVersion = 0;
+const serverVersions = new Map<string, number>();
+
 export const usePreviewStore = create<PreviewState>((set, get) => ({
   projectId: null,
   command: "",
   running: false,
+  starting: false,
+  setProject: (projectId) => {
+    if (projectId === get().projectId) return;
+    statusVersion++;
+    void get().closeWebview();
+    set({ projectId, command: "", running: false, starting: false, url: null, manualUrl: "", logs: [], console: [], picking: false, lastPick: null });
+  },
   url: null,
   manualUrl: "",
   logs: [],
@@ -108,45 +121,62 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   },
 
   syncStatus: async (projectId) => {
-    try {
-      const st = await ipc.preview.serverStatus(projectId);
-      set({ projectId, running: st.running, url: st.url ?? get().url, command: st.command ?? get().command });
-    } catch {
-      /* ignore */
-    }
+    get().setProject(projectId);
+    const version = ++statusVersion;
+    const st = await ipc.preview.serverStatus(projectId);
+    if (version !== statusVersion || get().projectId !== projectId) return;
+    set({ running: st.running, url: st.url ?? null, command: st.command ?? get().command });
   },
 
   start: async (projectId) => {
+    if (get().starting || get().running) return;
+    get().setProject(projectId);
     const command = get().command.trim();
-    set({ projectId, running: true, url: null, logs: [], console: [] });
-    await ipc.preview.serverStart(projectId, command, (e: PreviewEvent) => {
-      if (e.type === "log") set((s) => ({ logs: [...s.logs.slice(-499), (e.is_err ? "! " : "") + e.line] }));
-      else if (e.type === "url") set({ url: e.url });
-      else if (e.type === "started") set((s) => ({ logs: [...s.logs, `$ ${e.command}`] }));
-      else if (e.type === "exited") set((s) => ({ running: false, logs: [...s.logs, `[종료 code ${e.code ?? "?"}]`] }));
-    });
+    if (!command) throw new Error("실행 설정에서 미리보기 시작 명령을 확인해 주세요.");
+    statusVersion++;
+    const version = (serverVersions.get(projectId) ?? 0) + 1;
+    serverVersions.set(projectId, version);
+    const current = () => get().projectId === projectId && serverVersions.get(projectId) === version;
+    set({ starting: true, url: null, logs: [], console: [] });
+    try {
+      await ipc.preview.serverStart(projectId, command, (e: PreviewEvent) => {
+        if (!current()) return;
+        if (e.type === "log") set((s) => ({ logs: [...s.logs.slice(-499), (e.is_err ? "! " : "") + e.line] }));
+        else if (e.type === "url") set({ url: e.url });
+        else if (e.type === "started") set((s) => ({ running: true, logs: [...s.logs, `$ ${e.command}`] }));
+        else if (e.type === "exited") set((s) => ({ running: false, starting: false, logs: [...s.logs, `[종료 code ${e.code ?? "?"}]`] }));
+      });
+    } catch (e) {
+      if (current()) set({ running: false });
+      throw e;
+    } finally {
+      if (current()) set({ starting: false });
+    }
   },
 
   stop: async () => {
     const pid = get().projectId;
+    const version = pid ? serverVersions.get(pid) : undefined;
     if (pid) await ipc.preview.serverStop(pid);
-    set({ running: false });
+    if (get().projectId === pid && (!pid || serverVersions.get(pid) === version)) set({ running: false, starting: false });
   },
 
   openUrl: async (url, bounds) => {
+    const version = ++webviewVersion;
     await ipc.preview.open(url, bounds);
-    set({ webviewOpen: true, url });
+    if (version === webviewVersion) set({ webviewOpen: true, url });
   },
 
   closeWebview: async () => {
-    await ipc.preview.close().catch(() => {});
+    webviewVersion++;
     set({ webviewOpen: false, picking: false });
+    await ipc.preview.close().catch(() => {});
   },
 
   togglePicking: async () => {
     const on = !get().picking;
-    set({ picking: on });
     await ipc.preview.eval(`window.__vibecoderPreview && window.__vibecoderPreview.setPicking(${on ? "true" : "false"})`);
+    set({ picking: on });
   },
 
   clearConsole: () => set({ console: [] }),

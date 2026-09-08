@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { check as checkUpdate } from "@tauri-apps/plugin-updater";
+import { Loader2, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TitleBar } from "@/components/TitleBar";
@@ -9,14 +11,16 @@ import { Onboarding } from "@/features/onboarding/Onboarding";
 import { ProjectSidebar } from "@/features/projects/ProjectSidebar";
 import { ProjectWizard } from "@/features/projects/ProjectWizard";
 import { ChatView } from "@/features/chat/ChatView";
-import { FilesPanel } from "@/features/files/FilesPanel";
-import { GitPanel } from "@/features/git/GitPanel";
-import { TerminalPanel } from "@/features/terminal/TerminalPanel";
-import { SettingsDialog } from "@/features/settings/SettingsDialog";
-import { PreviewPane } from "@/features/preview/PreviewPane";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 
+const FilesPanel = lazy(() => import("@/features/files/FilesPanel").then((m) => ({ default: m.FilesPanel })));
+const GitPanel = lazy(() => import("@/features/git/GitPanel").then((m) => ({ default: m.GitPanel })));
+const TerminalPanel = lazy(() => import("@/features/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
+const SettingsDialog = lazy(() => import("@/features/settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const PreviewPane = lazy(() => import("@/features/preview/PreviewPane").then((m) => ({ default: m.PreviewPane })));
+
 export default function App() {
+  const settingsOpen = useAppStore((s) => s.settingsOpen);
   const settings = useAppStore((s) => s.settings);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const loadProjects = useAppStore((s) => s.loadProjects);
@@ -25,23 +29,33 @@ export default function App() {
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
 
-  useEffect(() => {
-    loadSettings().catch((e) => console.error("settings", e));
-    loadProjects().catch((e) => console.error("projects", e));
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      await Promise.all([loadSettings(), loadProjects()]);
+    } catch (e) {
+      setLoadError(String(e));
+    } finally {
+      setLoading(false);
+    }
   }, [loadSettings, loadProjects]);
 
+  useEffect(() => { void load(); }, [load]);
+
   useEffect(() => {
-    const root = document.documentElement;
-    const theme = settings?.theme ?? "system";
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    root.classList.toggle("dark", theme === "dark" || (theme === "system" && prefersDark));
-  }, [settings?.theme]);
+    document.documentElement.classList.add("dark");
+  }, []);
 
   // Panel shortcuts: Ctrl+1 git, Ctrl+2 terminal, Ctrl+3 files, Ctrl+4 preview, Ctrl+, settings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       const st = useAppStore.getState();
+      if (!st.settings?.onboarding_done) return;
       const map: Record<string, () => void> = {
         "1": () => st.setGitPanelOpen(!st.gitPanelOpen),
         "2": () => st.setTerminalOpen(!st.terminalOpen),
@@ -66,8 +80,8 @@ export default function App() {
   const updateChecked = useRef(false);
   useEffect(() => {
     if (!settings?.onboarding_done || !settings.auto_update_check || updateChecked.current) return;
-    updateChecked.current = true;
     const t = window.setTimeout(() => {
+      updateChecked.current = true;
       checkUpdate()
         .then((u) => {
           if (u) toast.info(`새 버전 v${u.version} 이 있습니다 — 설정 > 정보에서 설치`, { duration: 10000 });
@@ -80,13 +94,23 @@ export default function App() {
   return (
     <TooltipProvider>
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-        <TitleBar showPanels={!onboarding} />
-        {onboarding ? (
+        <TitleBar showPanels={!loading && !loadError && !!settings && !onboarding} />
+        {loading || loadError || !settings ? (
+          <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center" aria-live="polite">
+            {loading ? <Loader2 className="size-8 animate-spin text-primary" /> : <RefreshCw className="size-8 text-primary" />}
+            <h1 className="text-xl font-semibold">{loading ? "작업 공간을 준비하고 있어요" : "작업 공간을 불러오지 못했어요"}</h1>
+            {!loading && <>
+              <p className="text-sm text-muted-foreground">잠시 후 다시 시도해 주세요. 문제가 계속되면 앱을 다시 열어 주세요.</p>
+              <Button onClick={() => void load()}><RefreshCw /> 다시 시도</Button>
+              <details className="max-w-xl text-left text-xs text-muted-foreground"><summary>오류 자세히 보기</summary><pre className="mt-2 whitespace-pre-wrap break-all">{loadError}</pre></details>
+            </>}
+          </main>
+        ) : onboarding ? (
           <Onboarding />
         ) : (
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <ProjectSidebar />
-            {filesPanelOpen && <FilesPanel />}
+            {filesPanelOpen && <Suspense fallback={<PanelLoading />}><FilesPanel /></Suspense>}
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1">
                 <main className="flex min-w-0 flex-1 flex-col">
@@ -99,7 +123,7 @@ export default function App() {
                       </ResizablePanel>
                       <ResizableHandle withHandle />
                       <ResizablePanel defaultSize={55} minSize={25}>
-                        <PreviewPane />
+                        <Suspense fallback={<PanelLoading />}><PreviewPane /></Suspense>
                       </ResizablePanel>
                     </ResizablePanelGroup>
                   ) : (
@@ -107,27 +131,31 @@ export default function App() {
                   )}
                 </main>
                 {gitPanelOpen && (
-                  <aside className="w-80 shrink-0 border-l">
-                    <GitPanel />
+                  <aside className="w-[min(24rem,38vw)] shrink-0 border-l">
+                    <Suspense fallback={<PanelLoading />}><GitPanel /></Suspense>
                   </aside>
                 )}
               </div>
               {terminalOpen && (
                 <div className="h-64 shrink-0 border-t">
-                  <TerminalPanel />
+                  <Suspense fallback={<PanelLoading />}><TerminalPanel /></Suspense>
                 </div>
               )}
             </div>
           </div>
         )}
       </div>
-      {!onboarding && (
+      {!loading && !loadError && settings && !onboarding && (
         <>
           <ProjectWizard />
-          <SettingsDialog />
+          {settingsOpen && <Suspense fallback={null}><SettingsDialog /></Suspense>}
         </>
       )}
       <Toaster />
     </TooltipProvider>
   );
+}
+
+function PanelLoading() {
+  return <div role="status" className="flex min-h-0 flex-1 items-center justify-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> 화면을 준비하고 있어요</div>;
 }
