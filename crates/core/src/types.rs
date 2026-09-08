@@ -78,29 +78,6 @@ pub enum PermissionPreset {
     FullAuto,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, TS)]
-#[ts(export)]
-#[serde(rename_all = "lowercase")]
-pub enum BackendKind {
-    Native,
-    Wsl,
-}
-
-/// Where commands run. `wsl_distro = None` with `Wsl` means the default distro.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, TS)]
-#[ts(export)]
-pub struct BackendConfig {
-    pub kind: BackendKind,
-    #[ts(optional = nullable)]
-    pub wsl_distro: Option<String>,
-}
-
-impl Default for BackendConfig {
-    fn default() -> Self {
-        BackendConfig { kind: BackendKind::Native, wsl_distro: None }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
@@ -108,7 +85,6 @@ impl Default for BackendConfig {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct AppSettings {
-    pub backend: BackendConfig,
     pub default_provider: Provider,
     #[ts(optional = nullable)]
     pub default_model_claude: Option<String>,
@@ -191,7 +167,6 @@ pub struct McpServerConfig {
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
-            backend: BackendConfig::default(),
             default_provider: Provider::Claude,
             default_model_claude: None,
             default_model_codex: None,
@@ -312,10 +287,6 @@ pub struct StackInfo {
     #[ts(optional = nullable)]
     #[serde(default)]
     pub dev_command: Option<String>,
-    /// Windows-side toolchains (see `toolchain::WIN_TOOLS` names: rust, msvc, node, dotnet, go) needed when the
-    /// agent works inside WSL but the build output must be a Windows program. Empty = builds fine on the backend.
-    #[serde(default)]
-    pub windows_toolchain: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -399,7 +370,6 @@ pub enum ScaffoldEvent {
         /// Tool name (toolchain: rust, msvc, node …; backend tool: uv, python, npm …).
         name: String,
         label: String,
-        kind: InstallKind,
         /// 1-based position in this creation's install list.
         index: u32,
         total: u32,
@@ -411,17 +381,6 @@ pub enum ScaffoldEvent {
     },
     Done { project: ProjectRecord },
     Failed { message: String },
-}
-
-/// Where an automatically installed tool lives.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum InstallKind {
-    /// Windows-side toolchain installed with winget on the host (rust, msvc, node, dotnet, go).
-    WindowsToolchain,
-    /// Backend-side prerequisite installed with its install hint (apt / `curl | sh` in WSL, winget natively).
-    BackendTool,
 }
 
 /// Outcome of one automatic install.
@@ -746,30 +705,6 @@ pub struct ProjectPlan {
     pub reason: String,
     /// Backend-side prerequisites of the chosen stack that are not installed.
     pub missing_tools: Vec<ToolStatus>,
-    /// Windows toolchain entries the stack needs when built from WSL (empty when not applicable).
-    pub windows_toolchain: Vec<WindowsToolStatus>,
-}
-
-// ---------------------------------------------------------------------------
-// Windows toolchain used from WSL (cargo.exe, node.exe, dotnet.exe ... via interop)
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-pub struct WindowsToolStatus {
-    /// rust | msvc | node | dotnet | go
-    pub name: String,
-    pub label: String,
-    pub found: bool,
-    /// Windows path of the main executable (or install dir for msvc).
-    #[ts(optional = nullable)]
-    pub path: Option<String>,
-    #[ts(optional = nullable)]
-    pub version: Option<String>,
-    /// winget package id.
-    pub winget_id: String,
-    /// Shim names created in the WSL distro (`~/.local/bin`), e.g. cargo.exe, npm.cmd.
-    pub shims: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -883,68 +818,13 @@ pub struct GitHubRepo {
 }
 
 // ---------------------------------------------------------------------------
-// Managed environment (app-owned WSL distribution)
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum WslState {
-    /// wsl.exe is missing entirely (very old Windows).
-    NotFound,
-    /// wsl.exe exists but the WSL feature / kernel is not installed.
-    NotInstalled,
-    Installed,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-pub struct WslStatus {
-    pub state: WslState,
-    #[ts(optional = nullable)]
-    pub version: Option<String>,
-    pub distros: Vec<String>,
-    /// Name of the app-owned distribution.
-    pub managed_distro: String,
-    pub managed_present: bool,
-    /// Present and the provisioning marker + tools check passed.
-    pub managed_ready: bool,
-    #[ts(optional = nullable)]
-    pub detail: Option<String>,
-    /// Windows build number (WSL2 needs 19041+). 0 = unknown.
-    pub windows_build: i64,
-    /// CPU virtualization available to Windows: true when a hypervisor is already running or the
-    /// firmware reports it enabled; false when the BIOS/UEFI setting is off; None = unknown.
-    #[ts(optional = nullable)]
-    pub virtualization_enabled: Option<bool>,
-    pub hypervisor_present: bool,
-    #[ts(optional = nullable)]
-    pub cpu_vendor: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ProvisionEvent {
-    Step { name: String },
-    Log { line: String, is_err: bool },
-    Progress {
-        bytes: i64,
-        #[ts(optional = nullable)]
-        total: Option<i64>,
-    },
-    Done,
-    Failed { message: String },
-}
-
-// ---------------------------------------------------------------------------
 // PTY (embedded terminal)
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct PtySpec {
-    /// Program to run; None = interactive shell (PowerShell natively, bash in WSL).
+    /// Program to run; None = interactive PowerShell.
     #[ts(optional = nullable)]
     pub program: Option<String>,
     pub args: Vec<String>,
@@ -953,9 +833,38 @@ pub struct PtySpec {
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
-    /// Run on the Windows host even when the active backend is WSL (winget installs, PowerShell).
-    #[serde(default)]
-    pub host: bool,
+}
+
+/// Progress of a GUI login (`claude auth login` / `codex login` running in a hidden PTY).
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LoginEvent {
+    Started,
+    /// Sign-in URL the CLI printed (it usually opens the browser itself too).
+    Url { url: String },
+    /// The CLI is waiting for an authorization code to be pasted.
+    CodeRequested,
+    /// A cleaned-up output line, for a small log.
+    Output { line: String },
+    /// The CLI exited; `logged_in` is the re-checked auth status.
+    Finished {
+        #[ts(optional = nullable)]
+        code: Option<i32>,
+        logged_in: bool,
+        #[ts(optional = nullable)]
+        account: Option<String>,
+    },
+}
+
+/// Progress of a GUI tool install (`tools_install`).
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ToolInstallEvent {
+    Log { line: String, is_err: bool },
+    /// Installer finished; `status` is the re-detected tool.
+    Finished { ok: bool, message: String, status: ToolStatus },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]

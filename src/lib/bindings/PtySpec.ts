@@ -2,14 +2,10 @@
 
 export type PtySpec = { 
 /**
- * Program to run; None = interactive shell (PowerShell natively, bash in WSL).
+ * Program to run; None = interactive PowerShell.
  */
 program?: string | null, args: Array<string>, 
 /**
  * Windows path.
  */
-cwd?: string | null, cols: number, rows: number, 
-/**
- * Run on the Windows host even when the active backend is WSL (winget installs, PowerShell).
- */
-host: boolean, };
+cwd?: string | null, cols: number, rows: number, };

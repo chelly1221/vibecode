@@ -1,6 +1,7 @@
 # vibecode (product name: Vibecoder)
 
 Windows desktop (Tauri v2 + Rust + React/TS) GUI for vibe coding with Claude Code, OpenAI Codex and git.
+Everything runs natively on Windows (no WSL): claude.exe, codex.cmd, git.exe from Git for Windows.
 Personal-use app (not distributed). Full design: `docs/PLAN.md`.
 
 ## Layout
@@ -11,7 +12,7 @@ Personal-use app (not distributed). Full design: `docs/PLAN.md`.
 - `src-tauri/` thin Tauri shell: `commands/*.rs` wrap core calls into `Result<T, String>`.
 - `crates/core/` (`vibecode-core`) Tauri-independent logic. Module ownership is listed in `crates/core/src/lib.rs`.
   - `types.rs` is the single source of truth for wire types (`#[derive(TS)]`, exported).
-  - `backend/` everything that spawns a process goes through `ExecBackend` (Native or WSL). Paths given to it are Windows paths.
+  - `backend/` everything that spawns a process goes through `ExecBackend` (host PowerShell/exe, `.cmd` shims via cmd.exe).
 
 ## Build & test (run from WSL, uses the Windows toolchain)
 This repo is developed from WSL but compiled with the Windows toolchain so the result is a real Windows exe.
@@ -30,24 +31,37 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
 - Every Tauri command name appears in `src-tauri/src/commands/mod.rs` AND `src/lib/ipc.ts`. Keep them in sync.
 - Streaming to the UI uses `tauri::ipc::Channel<T>`; long-lived state lives in `vibecode_core::AppContext`.
 - Adapters must never block the Tokio runtime: use `tokio::process`, `spawn_blocking` for sync libs (rusqlite, portable-pty).
+- No WSL code paths: settings have no execution-environment choice; tool detection/install hints are Windows-only
+  (`tools::install_hint`, winget). `msvc` (VS Build Tools via vswhere) is a regular tool in `KNOWN_TOOLS` and a stack prerequisite.
+- Nothing in the UI hands the user to a terminal. Login: `tools_login_start` runs `claude auth login --claudeai` /
+  `codex login` in a hidden PTY (`crates/core/src/tools/login.rs` strips ANSI/OSC-8, extracts the sign-in URL and the
+  "paste code" prompt) → `LoginPanel.tsx` (URL button, code input); Claude needs the pasted code, Codex finishes via its
+  localhost callback. Installs: `tools_install` streams `ToolInstallEvent`s → inline progress in `ToolsTable` /
+  `InstallProgress`. The terminal panel remains an optional feature; `.cmd` shims in the PTY go through `cmd.exe /d /c`.
 - Windows child processes are spawned via `backend::process::spawn_tracked` (job object + no console window).
 - New project flow: quick mode first (`ProjectWizard` → `StepDescribe` → `projects_ai_plan` → `PlanSummary` → create → `startFirstSession`);
   the six-step wizard stays behind "바꾸기 (고급)". `crates/core/src/projects/ai_plan.rs` builds the prompt/validation.
-- Missing tools are installed automatically at the start of `projects_create` (`crates/core/src/projects/install.rs`: winget on the
-  host for Windows toolchains, install hints on the backend with `sudo -n`, never fatal). Progress streams as
+- Missing stack prerequisites are installed automatically at the start of `projects_create` (`crates/core/src/projects/install.rs`
+  runs each install hint in PowerShell, winget with agreements accepted; never fatal). Progress streams as
   `ScaffoldEvent::Install` → progress bar in `InstallProgress.tsx`; the summary screen only lists what will be installed.
   `CreateProjectRequest.install_missing_tools` (advanced wizard switch) turns it off.
-- WSL building Windows programs: `crates/core/src/toolchain.rs` (detect host rust/msvc/node/dotnet/go, winget install script run
-  in a host PowerShell PTY via `PtySpec.host`, `~/.local/bin` shims `cargo.exe`/`npm.cmd`/...). Stacks opt in with
-  `windows_toolchain` in `stacks.toml`; scaffold commands, AGENTS.md notes and the preview dev command are rewritten to the shims.
+- CLAUDE.md and AGENTS.md of every registered project are identical copies, kept so by
+  `crates/core/src/projects/docs_sync.rs` (`reconcile`: missing one cloned, newest non-empty content wins; `DocsWatcher`
+  on `notify` watches each project root and mirrors after a 400 ms quiet period). Reconcile also runs at app start, project
+  registration/selection (`projects_sync_agent_docs`), session start and every turn end. `agent_docs::generate` returns
+  the one document written to both files.
 - Runtime facts verified 2026-09-04: Claude Code CLI 2.1.260 (`--effort low|medium|high|xhigh|max`,
   `--permission-mode manual|acceptEdits|auto|plan|dontAsk|bypassPermissions`, `--permission-prompts host|none`,
   `--permission-prompt-tool`, `--input-format/--output-format stream-json`, `--include-partial-messages`,
   `--replay-user-messages`, `--resume`, `--fork-session`, `--session-id`, `--max-budget-usd`, `--bare`);
   Codex app-server JSON-RPC (`thread/start|resume|fork`, `turn/start|steer|interrupt`, `model/list`,
   `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/agentMessage/delta`, ...).
-- On this dev machine: Claude Code is installed and logged in inside WSL (`Ubuntu`), not on Windows.
-  The app therefore defaults to the WSL backend when `claude` is missing natively but present in WSL.
+- On this dev machine (since 2026-09-08): Claude Code is installed natively with the official installer at
+  `%USERPROFILE%\.local\bin\claude.exe` (auto-updating; settings `claude_bin` points at it because WSL-launched dev builds
+  do not see the updated user PATH), Codex via `npm install -g @openai/codex` (`%APPDATA%\npm\codex.cmd`), Git for Windows
+  2.55 (`C:\Program Files\Git`). Git for Windows is optional for Claude Code itself (PowerShell tool fallback) but the app's
+  git panel/checkpoints need `git.exe`. Integration tests (`*_native.rs`) fall back to the default Git path when `git` is not
+  on the test process's PATH.
 
 ## UI preview (디자인 모드)
 - `src-tauri/src/commands/preview.rs` creates a Tauri child webview (label `preview`, `unstable` feature) positioned over the
@@ -67,5 +81,3 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
   (`/init <exe> <argv0> <args…>` runs a Windows binary directly; repeat the exe name as argv0).
 - GUI verification: start the app with `WSLENV=WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS/w WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 cargo.exe tauri dev`,
   then drive it with `node.exe scripts/cdp.mjs eval|shot|run` (Chrome DevTools Protocol; screenshots land in `.tmp/`).
-- Managed environment: `crates/core/src/managed/` provisions an app-owned WSL distro `Vibecoder` (user `vibe`, no systemd) under `%LOCALAPPDATA%\Vibecoder`; remove with `wsl --unregister Vibecoder`.
-- WSL distros on this machine: `Ubuntu-24.04` (default, no claude) and `Ubuntu` (claude + codex installed, logged in). Pick `Ubuntu`.

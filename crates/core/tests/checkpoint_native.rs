@@ -1,24 +1,30 @@
-//! Checkpoint create/restore/diff through a real AppContext on the WSL backend, for a git
-//! project (in-place refs) and a plain directory (hidden repository). Skips without WSL.
+//! Checkpoint create/restore/diff through a real AppContext on the Windows host, for a git
+//! project (in-place refs) and a plain directory (hidden repository). Needs Git for Windows.
 
 use std::path::Path;
 
-use vibecode_core::backend::wsl::list_distros;
 use vibecode_core::checkpoint;
-use vibecode_core::types::{BackendConfig, BackendKind, ProjectRecord};
+use vibecode_core::types::ProjectRecord;
 use vibecode_core::AppContext;
 
-async fn ctx_on_wsl() -> Option<(std::sync::Arc<AppContext>, tempfile::TempDir)> {
+/// `git` from PATH, else the default Git for Windows install (the test process may predate a PATH change).
+fn git_bin() -> Option<String> {
+    if which::which("git").is_ok() {
+        return None;
+    }
+    let p = std::path::Path::new("C:\\Program Files\\Git\\cmd\\git.exe");
+    p.is_file().then(|| p.to_string_lossy().into_owned())
+}
+
+async fn ctx_native() -> Option<(std::sync::Arc<AppContext>, tempfile::TempDir)> {
     if !cfg!(windows) {
         return None;
     }
-    let distros = list_distros().await;
-    let distro = distros.iter().find(|d| d.as_str() == "Ubuntu").cloned().or_else(|| distros.first().cloned())?;
     let data = tempfile::tempdir().unwrap();
     let ctx = AppContext::init(data.path().to_path_buf()).await.expect("ctx");
     let mut settings = ctx.settings().await;
-    settings.backend = BackendConfig { kind: BackendKind::Wsl, wsl_distro: Some(distro) };
-    ctx.update_settings(settings).await.expect("switch backend");
+    settings.git_bin = git_bin();
+    ctx.update_settings(settings).await.expect("settings");
     Some((ctx, data))
 }
 
@@ -93,14 +99,14 @@ async fn exercise(ctx: std::sync::Arc<AppContext>, project_id: &str, root: &Path
 }
 
 #[tokio::test]
-async fn checkpoints_in_git_project_via_wsl() {
-    let Some((ctx, _data)) = ctx_on_wsl().await else {
-        eprintln!("skipping: no WSL");
+async fn checkpoints_in_git_project_natively() {
+    let Some((ctx, _data)) = ctx_native().await else {
+        eprintln!("skipping: not Windows");
         return;
     };
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    let git = vibecode_core::git::Git::new(ctx.backend().await, None);
+    let git = vibecode_core::git::Git::new(ctx.backend().await, ctx.git_bin().await);
     git.init(root, "main").await.expect("git init");
     std::fs::write(root.join(".gitignore"), "node_modules/\n").unwrap();
     register(&ctx, "gitproj", root);
@@ -109,14 +115,14 @@ async fn checkpoints_in_git_project_via_wsl() {
     let st = git.status(root).await.unwrap();
     assert!(st.is_repo);
     assert!(!root.join(".git").join("index").exists() || st.files.iter().all(|f| !f.staged), "project index must not be staged by checkpoints");
-    let refs = ctx.backend().await.run(&vibecode_core::backend::CommandSpec::new("git").args(["for-each-ref", "refs/vibecoder/"]).cwd(root)).await.unwrap();
+    let refs = ctx.backend().await.run(&vibecode_core::backend::CommandSpec::new(ctx.git_bin().await.unwrap_or_else(|| "git".into())).args(["for-each-ref", "refs/vibecoder/"]).cwd(root)).await.unwrap();
     assert!(refs.stdout.lines().count() >= 3, "refs: {}", refs.stdout);
 }
 
 #[tokio::test]
-async fn checkpoints_in_plain_dir_via_wsl() {
-    let Some((ctx, data)) = ctx_on_wsl().await else {
-        eprintln!("skipping: no WSL");
+async fn checkpoints_in_plain_dir_natively() {
+    let Some((ctx, data)) = ctx_native().await else {
+        eprintln!("skipping: not Windows");
         return;
     };
     let dir = tempfile::tempdir().unwrap();

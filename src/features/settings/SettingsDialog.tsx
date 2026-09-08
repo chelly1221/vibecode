@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, KeyRound, RefreshCw, Save } from "lucide-react";
+import { ExternalLink, FolderOpen, KeyRound, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,8 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ipc, type AppSettings, type GitHubUser, type ToolStatus } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { AuthCards } from "@/features/onboarding/AuthCards";
-import { BackendPicker } from "@/features/onboarding/BackendPicker";
-import { useManagedEnv } from "@/features/onboarding/useManagedEnv";
 import { DefaultsForm } from "@/features/onboarding/DefaultsForm";
 import { ToolsTable } from "@/features/onboarding/ToolsTable";
 import { McpTab } from "./McpTab";
@@ -55,13 +54,13 @@ export function SettingsDialog() {
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>설정</DialogTitle>
-          <DialogDescription>실행 환경, 기본값, 계정, MCP 서버를 관리합니다.</DialogDescription>
+          <DialogDescription>기본값, 도구, 계정, MCP 서버를 관리합니다.</DialogDescription>
         </DialogHeader>
         {draft && (
           <Tabs defaultValue="general" className="min-h-0 flex-1">
             <TabsList>
               <TabsTrigger value="general">일반</TabsTrigger>
-              <TabsTrigger value="backend">실행 환경</TabsTrigger>
+              <TabsTrigger value="tools">도구</TabsTrigger>
               <TabsTrigger value="accounts">계정</TabsTrigger>
               <TabsTrigger value="mcp">MCP</TabsTrigger>
               <TabsTrigger value="about">정보</TabsTrigger>
@@ -70,11 +69,11 @@ export function SettingsDialog() {
               <TabsContent value="general">
                 <DefaultsForm draft={draft} onChange={patch} />
               </TabsContent>
-              <TabsContent value="backend">
-                <BackendTab draft={draft} patch={patch} />
+              <TabsContent value="tools">
+                <ToolsTab draft={draft} patch={patch} />
               </TabsContent>
               <TabsContent value="accounts">
-                <AccountsTab onLogin={() => setOpen(false)} />
+                <AccountsTab />
               </TabsContent>
               <TabsContent value="mcp">
                 <McpTab draft={draft} patch={patch} />
@@ -98,60 +97,30 @@ export function SettingsDialog() {
   );
 }
 
-function BackendTab({ draft, patch }: { draft: AppSettings; patch: (p: Partial<AppSettings>) => void }) {
-  const managedEnv = useManagedEnv(true);
-  const [distros, setDistros] = useState<string[]>([]);
+function ToolsTab({ draft, patch }: { draft: AppSettings; patch: (p: Partial<AppSettings>) => void }) {
   const [tools, setTools] = useState<ToolStatus[] | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    ipc.tools
-      .listWslDistros()
-      .then(setDistros)
-      .catch(() => setDistros([]));
-  }, []);
 
   const detect = useCallback(async () => {
     setLoading(true);
     try {
-      setTools(await ipc.tools.detect(draft.backend));
+      setTools(await ipc.tools.detect());
     } catch (e) {
       toast.error(`도구 감지 실패: ${String(e)}`);
       setTools([]);
     } finally {
       setLoading(false);
     }
-  }, [draft.backend]);
+  }, []);
 
-  // Re-detect whenever the (draft) backend changes.
   useEffect(() => {
     detect().catch(() => {});
   }, [detect]);
 
   return (
     <div className="space-y-6">
-      <BackendPicker
-        value={draft.backend}
-        onChange={(b) => patch({ backend: b })}
-        distros={distros}
-        nativeTools={null}
-        wslTools={null}
-        recommended={null}
-        loading={false}
-        managed={{
-          status: managedEnv.status,
-          tools: managedEnv.tools,
-          loggedIn: managedEnv.loggedIn,
-          recommended: false,
-          onChanged: async () => {
-            await managedEnv.refresh();
-          },
-        }}
-      />
-      <p className="text-xs text-muted-foreground">
-        실행 환경을 바꾸면 저장 시 실행 중인 Codex 서버가 재시작되고, 새 세션부터 적용됩니다.
-      </p>
-      <ToolsTable tools={tools} loading={loading} backend={draft.backend.kind} onRefresh={detect} compact />
+      <p className="text-sm text-muted-foreground">Claude Code · Codex · git은 Windows에 설치된 것을 직접 실행합니다. 없는 도구는 "설치"를 누르면 앱이 바로 설치합니다(관리자 권한 창이 뜨면 허용).</p>
+      <ToolsTable tools={tools} loading={loading} onRefresh={detect} compact />
       <Separator />
       <div className="grid gap-4 md:grid-cols-3">
         {(
@@ -163,22 +132,35 @@ function BackendTab({ draft, patch }: { draft: AppSettings; patch: (p: Partial<A
         ).map(([key, label]) => (
           <div key={key} className="space-y-1.5">
             <Label>{label}</Label>
-            <Input
-              placeholder="비우면 자동 감지"
-              value={draft[key] ?? ""}
-              onChange={(e) => patch({ [key]: e.target.value.trim() || null } as Partial<AppSettings>)}
-            />
+            <div className="flex gap-1.5">
+              <Input
+                placeholder="비우면 PATH에서 찾음"
+                value={draft[key] ?? ""}
+                onChange={(e) => patch({ [key]: e.target.value.trim() || null } as Partial<AppSettings>)}
+              />
+              <Button
+                size="icon"
+                variant="outline"
+                aria-label={`${label} 찾아보기`}
+                onClick={async () => {
+                  const picked = await openFileDialog({ multiple: false, title: `${label} 선택`, filters: [{ name: "실행 파일", extensions: ["exe", "cmd", "bat"] }] }).catch(() => null);
+                  if (typeof picked === "string") patch({ [key]: picked } as Partial<AppSettings>);
+                }}
+              >
+                <FolderOpen className="size-4" />
+              </Button>
+            </div>
           </div>
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        실행 파일 경로는 선택한 실행 환경 기준입니다 (WSL이면 리눅스 경로, 예: /home/me/.local/bin/claude).
+        비워 두면 PATH에서 찾습니다. 다른 위치에 설치했다면 전체 경로를 적으세요 (예: C:\\Users\\me\\.local\\bin\\claude.exe).
       </p>
     </div>
   );
 }
 
-function AccountsTab({ onLogin }: { onLogin: () => void }) {
+function AccountsTab() {
   const [user, setUser] = useState<GitHubUser | null | undefined>(undefined);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -228,8 +210,8 @@ function AccountsTab({ onLogin }: { onLogin: () => void }) {
     <div className="space-y-6">
       <section className="space-y-3">
         <h3 className="text-sm font-medium">에이전트 로그인</h3>
-        <p className="text-xs text-muted-foreground">"로그인"을 누르면 설정 창이 닫히고 터미널 패널에서 로그인이 진행됩니다.</p>
-        <AuthCards onLogin={onLogin} />
+        <p className="text-xs text-muted-foreground">"로그인"을 누르면 브라우저가 열립니다. Claude는 브라우저에 표시된 인증 코드를 붙여넣고, Codex는 브라우저에서 승인만 하면 됩니다.</p>
+        <AuthCards />
       </section>
       <Separator />
       <section className="space-y-3">

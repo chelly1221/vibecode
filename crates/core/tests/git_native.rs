@@ -1,33 +1,30 @@
-//! End-to-end git flow through the WSL backend. `git` is not installed on Windows on
-//! the dev machine, so this uses the Ubuntu distro. Skips when wsl.exe is unavailable.
+//! End-to-end git flow on the Windows host (Git for Windows).
 
 use std::path::Path;
 use std::sync::Arc;
 
-use vibecode_core::backend::wsl::{list_distros, WslBackend};
 use vibecode_core::backend::ExecBackend;
 use vibecode_core::git::Git;
 
-async fn wsl_backend() -> Option<Arc<dyn ExecBackend>> {
-    if !cfg!(windows) {
+/// `git` from PATH, else the default Git for Windows install (the test process may predate a PATH change).
+fn git_bin() -> Option<String> {
+    if which::which("git").is_ok() {
         return None;
     }
-    let distros = list_distros().await;
-    let distro = distros.iter().find(|d| d.as_str() == "Ubuntu").cloned().or_else(|| distros.first().cloned())?;
-    Some(Arc::new(WslBackend::new(distro)))
+    let p = std::path::Path::new("C:\\Program Files\\Git\\cmd\\git.exe");
+    p.is_file().then(|| p.to_string_lossy().into_owned())
 }
 
 #[tokio::test]
-async fn init_status_stage_commit_log_via_wsl() {
-    let Some(backend) = wsl_backend().await else {
-        eprintln!("skipping: wsl.exe not available");
-        return;
-    };
-    let git = Git::new(backend.clone(), None);
+async fn init_status_stage_commit_log_natively() {
+    let backend: Arc<ExecBackend> = Arc::new(ExecBackend::new());
+    let bin = git_bin();
+    let git = Git::new(backend.clone(), bin.clone());
     if git.version().await.is_err() {
-        eprintln!("skipping: git not available in WSL");
+        eprintln!("skipping: git not available on Windows");
         return;
     }
+    let git_exe = bin.clone().unwrap_or_else(|| "git".into());
 
     let dir = tempfile::tempdir().expect("temp dir");
     let repo: &Path = dir.path();
@@ -62,10 +59,8 @@ async fn init_status_stage_commit_log_via_wsl() {
     assert!(staged.contains("hello.txt"));
 
     // Commit with an explicit identity so the test does not depend on global config.
-    let ident_git = Git { backend: backend.clone(), bin: None, identity: None };
-    let _ = ident_git;
     let cfg = |k: &str, v: &str| {
-        let spec = vibecode_core::backend::CommandSpec::new("git").args(["config", k, v]).cwd(repo);
+        let spec = vibecode_core::backend::CommandSpec::new(git_exe.clone()).args(["config", k, v]).cwd(repo);
         let b = backend.clone();
         async move { b.run(&spec).await.unwrap().into_result().unwrap() }
     };

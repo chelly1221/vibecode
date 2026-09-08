@@ -8,7 +8,7 @@
 //! - Everything else: a hidden repository `<app data>/checkpoints/<project_id>/.git` with
 //!   `GIT_WORK_TREE=<project>` and an `info/exclude` covering build/dependency directories.
 //!
-//! Every git call goes through the active backend (paths are translated for WSL).
+//! Every git call goes through the host backend.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,7 +39,7 @@ pub fn label_for(text: &str) -> String {
     if s.is_empty() { "체크포인트".into() } else { sanitize_label(&s) }
 }
 
-/// Commit messages travel through nested shell quoting (wsl.exe → bash); keep them boring.
+/// Commit messages are passed as plain arguments; keep them boring.
 pub fn sanitize_label(label: &str) -> String {
     label
         .chars()
@@ -62,7 +62,7 @@ enum Mode {
 
 /// A project's snapshot store bound to a backend.
 struct Store {
-    backend: Arc<dyn ExecBackend>,
+    backend: Arc<ExecBackend>,
     bin: String,
     project: PathBuf,
     mode: Mode,
@@ -84,7 +84,7 @@ impl Store {
         let in_repo = match top {
             Ok(out) if out.success() => {
                 let top = out.stdout.trim().to_string();
-                let expected = store.backend.to_backend_path(project_path).replace('\\', "/").trim_end_matches('/').to_string();
+                let expected = project_path.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_string();
                 same_path(&top, &expected)
             }
             _ => false,
@@ -103,7 +103,10 @@ impl Store {
     }
 
     fn spec(&self, args: &[&str], with_env: bool, index: Option<&Path>) -> CommandSpec {
+        // Snapshots must round-trip bytes exactly: never let Git for Windows rewrite line endings
+        // (core.autocrlf defaults to true there) when adding to or checking out from a checkpoint.
         let mut spec = CommandSpec::new(&self.bin)
+            .args(["-c", "core.autocrlf=false", "-c", "core.safecrlf=false"])
             .args(args.iter().map(|s| s.to_string()))
             .cwd(&self.project)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -115,12 +118,12 @@ impl Store {
         if with_env {
             if let Mode::Hidden { git_dir } = &self.mode {
                 spec = spec
-                    .env("GIT_DIR", self.backend.to_backend_path(git_dir))
-                    .env("GIT_WORK_TREE", self.backend.to_backend_path(&self.project));
+                    .env("GIT_DIR", git_dir.to_string_lossy().into_owned())
+                    .env("GIT_WORK_TREE", self.project.to_string_lossy().into_owned());
             }
         }
         if let Some(i) = index {
-            spec = spec.env("GIT_INDEX_FILE", self.backend.to_backend_path(i));
+            spec = spec.env("GIT_INDEX_FILE", i.to_string_lossy().into_owned());
         }
         spec
     }
@@ -149,8 +152,13 @@ impl Store {
     }
 }
 
+/// Compare a path git printed with a host path. Both are canonicalized when possible so 8.3 short
+/// names (`RADAR~1`, common when TEMP is under a non-ASCII user name) and case differences match.
 fn same_path(a: &str, b: &str) -> bool {
-    let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
+    let norm = |s: &str| {
+        let canon = std::fs::canonicalize(s).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| s.to_string());
+        canon.trim_start_matches("\\\\?\\").replace('\\', "/").trim_end_matches('/').to_lowercase()
+    };
     norm(a) == norm(b)
 }
 

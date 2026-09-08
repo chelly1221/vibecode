@@ -1,6 +1,7 @@
 // Advanced wizard end to end: open the dialog, switch to the six-step form, fill it and press "생성 시작".
 // Inputs: window.__name, window.__parent (Windows dir), window.__target (card label, e.g. "Windows"),
-//         window.__type (card label, e.g. "스크립트"), window.__stack (stack name substring, e.g. "Python").
+//         window.__type (card label, e.g. "스크립트"), window.__stack (stack name substring, e.g. "Python"),
+//         window.__git (optional: turn on git init in the options step).
 if (document.querySelector("[role=dialog]")) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
   await vc.sleep(600);
@@ -30,6 +31,12 @@ await vc.waitFor(() => [...document.querySelectorAll("[role=dialog] button")].so
 const stackBtn = [...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent.includes(window.__stack));
 vc.click(stackBtn); await vc.sleep(400);
 vc.click(await vc.waitFor(nextBtn, 5000)); await vc.sleep(600);
+// Options step: window.__git = true turns on "git 초기화".
+if (window.__git) {
+  const sw = document.getElementById("opt-git");
+  if (sw && sw.getAttribute("aria-checked") !== "true") vc.click(sw);
+  await vc.sleep(300);
+}
 const go = await vc.waitFor(() => [...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent.includes("생성 시작") && !b.disabled), 5000);
 vc.click(go);
 await vc.sleep(1500);

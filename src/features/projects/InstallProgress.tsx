@@ -2,13 +2,9 @@
 // a bar over all missing tools, the one being installed now, and a terminal fallback for the
 // ones that failed or were skipped (sudo password, manual download).
 import { CheckCircle2, CircleDashed, Download, Loader2, MinusCircle, XCircle } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ipc } from "@/lib/ipc";
-import { hostPowershellCommand, installCommand } from "@/features/terminal/commands";
-import { useAppStore } from "@/stores/app";
-import { openTerminalWith } from "@/stores/terminal";
+import { useToolInstalls } from "@/features/onboarding/toolInstall";
 import type { ScaffoldState } from "@/stores/wizard";
 import { installProgress, type InstallItem } from "./install";
 
@@ -27,25 +23,12 @@ function StatusIcon({ status }: { status: InstallItem["status"] }) {
   }
 }
 
-/** Open a terminal that runs the install by hand (Windows PowerShell for winget, backend shell for hints). */
-async function openManualInstall(item: InstallItem, backend: "native" | "wsl"): Promise<void> {
-  if (item.kind === "windows_toolchain") {
-    const script = await ipc.toolchain.installScript([item.name]);
-    openTerminalWith(hostPowershellCommand(script, `${item.label} 설치`), null);
-    return;
-  }
-  if (!item.command) return;
-  openTerminalWith(installCommand(item.command, backend, `${item.label} 설치`), null);
-}
-
 export function InstallProgress({ scaffold }: { scaffold: ScaffoldState }) {
-  const backend = useAppStore((s) => s.settings?.backend.kind ?? "native");
+  const retries = useToolInstalls();
   if (scaffold.installs.length === 0) return null;
   const p = installProgress(scaffold.installs, scaffold.installTotal);
   const installing = scaffold.status === "running" && p.current !== null;
   const canRetry = scaffold.status !== "running";
-  const manual = (item: InstallItem) =>
-    openManualInstall(item, backend).catch((e) => toast.error("설치 명령을 만들지 못했습니다", { description: String(e) }));
 
   return (
     <div className="rounded-lg border" data-testid="install-progress">
@@ -62,7 +45,7 @@ export function InstallProgress({ scaffold }: { scaffold: ScaffoldState }) {
         {installing && p.current && (
           <p className="text-xs text-muted-foreground">
             {p.current.label} 설치 중…{" "}
-            {p.current.kind === "windows_toolchain" ? "관리자 권한을 요청하는 창이 뜨면 허용하세요. 다운로드 용량에 따라 몇 분 걸릴 수 있습니다." : "설치 스크립트를 실행하고 있습니다."}
+관리자 권한을 요청하는 창이 뜨면 허용하세요. 다운로드 용량에 따라 몇 분 걸릴 수 있습니다.
           </p>
         )}
         {!installing && p.finished === p.total && p.failed.length === 0 && p.skipped.length === 0 && (
@@ -71,7 +54,7 @@ export function InstallProgress({ scaffold }: { scaffold: ScaffoldState }) {
       </div>
       <ul className="divide-y text-sm">
         {scaffold.installs.map((it) => (
-          <li key={`${it.kind}:${it.name}`} className="flex items-center gap-2 px-3 py-1.5">
+          <li key={it.name} className="flex items-center gap-2 px-3 py-1.5">
             <StatusIcon status={it.status} />
             <span className="min-w-0 flex-1 truncate">{it.label}</span>
             {it.message && (
@@ -79,10 +62,18 @@ export function InstallProgress({ scaffold }: { scaffold: ScaffoldState }) {
                 {it.message}
               </span>
             )}
-            {canRetry && (it.status === "failed" || it.status === "skipped") && (it.kind === "windows_toolchain" || it.command) && (
-              <Button size="sm" variant="outline" className="h-7 text-xs" title={it.command ?? undefined} onClick={() => void manual(it)}>
-                <Download className="size-3.5" /> 터미널에서 설치
-              </Button>
+            {canRetry && (it.status === "failed" || it.status === "skipped") && it.command && !it.command.startsWith("http") && (
+              retries.byName[it.name]?.running ? (
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin text-primary" /> 다시 설치 중…
+                </span>
+              ) : retries.byName[it.name]?.ok ? (
+                <span className="text-xs text-emerald-700 dark:text-emerald-300">{retries.byName[it.name]?.message}</span>
+              ) : (
+                <Button size="sm" variant="outline" className="h-7 text-xs" title={it.command ?? undefined} onClick={() => void retries.install(it.name)}>
+                  <Download className="size-3.5" /> 다시 설치
+                </Button>
+              )
             )}
           </li>
         ))}

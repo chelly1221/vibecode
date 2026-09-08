@@ -51,7 +51,7 @@ use crate::backend::ExecBackend;
 use crate::error::Result;
 
 /// One-shot commit message generation (no session). See `agents::oneshot`.
-pub async fn oneshot_commit_message(backend: Arc<dyn ExecBackend>, bin: Option<String>, repo: &std::path::Path, diff: &str) -> Result<String> {
+pub async fn oneshot_commit_message(backend: Arc<ExecBackend>, bin: Option<String>, repo: &std::path::Path, diff: &str) -> Result<String> {
     const MAX_DIFF_CHARS: usize = 60_000;
     let mut diff = diff.to_string();
     if diff.chars().count() > MAX_DIFF_CHARS {

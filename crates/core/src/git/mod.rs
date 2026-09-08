@@ -1,4 +1,4 @@
-//! git operations executed through the backend (`git` on the host or in WSL).
+//! git operations executed on the host (`git.exe`, Git for Windows).
 //! `repo` is always a host (Windows) path.
 
 pub mod ssh;
@@ -18,7 +18,7 @@ use crate::types::{GitBranch, GitCommit, GitStatus};
 const MAX_COMMIT_DIFF_CHARS: usize = 60_000;
 
 pub struct Git {
-    pub backend: Arc<dyn ExecBackend>,
+    pub backend: Arc<ExecBackend>,
     /// Override for the git binary name/path (None = "git").
     pub bin: Option<String>,
     /// Commit author (name, email) applied with `-c` so a fresh environment can commit without global config.
@@ -26,7 +26,7 @@ pub struct Git {
 }
 
 impl Git {
-    pub fn new(backend: Arc<dyn ExecBackend>, bin: Option<String>) -> Self {
+    pub fn new(backend: Arc<ExecBackend>, bin: Option<String>) -> Self {
         Git { backend, bin, identity: None }
     }
 

@@ -18,9 +18,4 @@ agent_notes?: string | null,
 /**
  * Command that starts a dev server whose URL can be shown in the UI preview (None = not a web UI).
  */
-dev_command?: string | null, 
-/**
- * Windows-side toolchains (see `toolchain::WIN_TOOLS` names: rust, msvc, node, dotnet, go) needed when the
- * agent works inside WSL but the build output must be a Windows program. Empty = builds fine on the backend.
- */
-windows_toolchain: Array<string>, };
+dev_command?: string | null, };

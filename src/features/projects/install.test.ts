@@ -4,7 +4,6 @@ import { applyInstallEvent, installProgress, plannedInstalls, runnableHint, type
 const ev = (name: string, status: InstallEvent["status"], extra: Partial<InstallEvent> = {}): InstallEvent => ({
   name,
   label: name,
-  kind: "backend_tool",
   status,
   message: null,
   command: null,
@@ -18,7 +17,7 @@ describe("install progress", () => {
     let items: InstallItem[] = [];
     items = applyInstallEvent(items, ev("uv", "running"));
     items = applyInstallEvent(items, ev("uv", "done", { message: "uv 0.5.0" }));
-    items = applyInstallEvent(items, ev("rust", "running", { kind: "windows_toolchain" }));
+    items = applyInstallEvent(items, ev("rust", "running"));
     expect(items.map((i) => `${i.name}:${i.status}`)).toEqual(["uv:done", "rust:running"]);
     expect(items[0].message).toBe("uv 0.5.0");
   });
@@ -37,14 +36,12 @@ describe("install progress", () => {
   });
 
   it("lists planned installs once per command and separates manual ones", () => {
-    const win = (name: string, found: boolean) => ({ name, label: `${name}-label`, found, path: null, version: null, winget_id: "x", shims: [] });
     const tool = (name: string, hint: string | null) => ({ name, found: false, path: null, version: null, install_hint: hint });
-    const hint = "curl nodesource | sudo -E bash - && sudo apt install -y nodejs";
-    const p = plannedInstalls([win("rust", false), win("node", true)], [tool("node", hint), tool("npm", hint), tool("flutter", "https://docs.flutter.dev 참고")]);
-    expect(p.auto).toEqual(["rust-label", "Node.js"]);
+    const hint = "winget install OpenJS.NodeJS.LTS";
+    const p = plannedInstalls([tool("cargo", "winget install Rustlang.Rustup"), tool("node", hint), tool("npm", hint), tool("flutter", "https://docs.flutter.dev 참고")]);
+    expect(p.auto).toEqual(["Rust (cargo)", "Node.js"]);
     expect(p.manual).toEqual(["Flutter SDK"]);
-    expect(p.hasWindows).toBe(true);
-    expect(runnableHint("sudo apt install -y git")).toBe(true);
+    expect(runnableHint("winget install Git.Git")).toBe(true);
     expect(runnableHint(null)).toBe(false);
   });
 });

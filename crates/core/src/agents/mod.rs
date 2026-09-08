@@ -28,7 +28,7 @@ pub struct StartArgs {
     pub config: SessionConfig,
     /// Project directory (host path).
     pub cwd: PathBuf,
-    pub backend: Arc<dyn ExecBackend>,
+    pub backend: Arc<ExecBackend>,
     /// Binary override from settings (None = "claude" / "codex").
     pub bin: Option<String>,
     pub events: EventSender,

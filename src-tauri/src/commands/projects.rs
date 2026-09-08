@@ -36,7 +36,16 @@ pub async fn projects_open(state: State<'_, AppState>, path: String) -> Result<P
 
 #[tauri::command]
 pub async fn projects_remove(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if let Ok(p) = state.ctx.db.get_project(&id) {
+        state.ctx.docs_sync.unwatch(std::path::Path::new(&p.path));
+    }
     state.ctx.db.delete_project(&id).map_err(err)
+}
+
+/// Make CLAUDE.md / AGENTS.md identical (clone the missing one, newest content wins). Returns the file written, if any.
+#[tauri::command]
+pub async fn projects_sync_agent_docs(state: State<'_, AppState>, id: String) -> Result<Vec<String>, String> {
+    scaffold::sync_agent_docs(&state.ctx, &id).map_err(err)
 }
 
 #[tauri::command]

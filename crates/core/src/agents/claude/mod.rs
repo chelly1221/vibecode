@@ -21,7 +21,7 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::{oneshot, Mutex};
 
 use super::{AgentSession, EventSender, StartArgs};
-use crate::backend::{process::spawn_tracked, CommandSpec, ExecBackend, PID_MARKER};
+use crate::backend::{process::spawn_tracked, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
 use crate::permission::{PermissionAsk, PermissionBroker};
 use crate::types::{McpServerConfig, PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent};
@@ -36,8 +36,6 @@ const CLOSE_GRACE: Duration = Duration::from_secs(5);
 struct ProcState {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
-    /// pid inside the backend (from the WSL PID marker) for signalling.
-    backend_pid: Option<u32>,
     external_ref: Option<String>,
     model: Option<String>,
     capabilities: Vec<String>,
@@ -50,7 +48,7 @@ struct ProcState {
 struct Inner {
     session_id: String,
     cwd: PathBuf,
-    backend: Arc<dyn ExecBackend>,
+    backend: Arc<ExecBackend>,
     bin: String,
     events: EventSender,
     broker: Arc<PermissionBroker>,
@@ -126,22 +124,15 @@ impl Inner {
             p.generation += 1;
             p.child = Some(child);
             p.stdin = Some(stdin);
-            p.backend_pid = None;
             p.exited = false;
             p.capabilities.clear();
             p.generation
         };
-        // stderr: PID marker + diagnostics
+        // stderr: diagnostics
         let me = self.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(pid) = line.trim().strip_prefix(PID_MARKER) {
-                    if let Ok(pid) = pid.trim().parse::<u32>() {
-                        me.proc.lock().await.backend_pid = Some(pid);
-                    }
-                    continue;
-                }
                 if line.trim().is_empty() {
                     continue;
                 }
@@ -360,13 +351,7 @@ impl AgentSession for ClaudeSession {
         }
         match self.inner.send_control(json!({ "subtype": "interrupt" })).await {
             Ok(_) => return Ok(()),
-            Err(e) => tracing::warn!(session = %self.inner.session_id, "interrupt control request failed ({e}); falling back to signal"),
-        }
-        let pid = self.inner.proc.lock().await.backend_pid;
-        if let Some(pid) = pid {
-            if self.inner.backend.signal(pid, "INT").await.is_ok() {
-                return Ok(());
-            }
+            Err(e) => tracing::warn!(session = %self.inner.session_id, "interrupt control request failed ({e}); restarting the process"),
         }
         // Last resort: kill; `send` will respawn with --resume.
         let _ = self.inner.stop_process().await;
@@ -457,7 +442,7 @@ impl AgentSession for ClaudeSession {
 }
 
 /// One-shot commit message generation (no session). See `agents::oneshot`.
-pub async fn oneshot_commit_message(backend: Arc<dyn ExecBackend>, bin: Option<String>, repo: &Path, diff: &str) -> Result<String> {
+pub async fn oneshot_commit_message(backend: Arc<ExecBackend>, bin: Option<String>, repo: &Path, diff: &str) -> Result<String> {
     let bin = bin.filter(|b| !b.trim().is_empty()).unwrap_or_else(|| "claude".into());
     let mut prompt = String::from(super::oneshot::COMMIT_PROMPT);
     prompt.push_str("\n\n```diff\n");

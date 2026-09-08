@@ -90,7 +90,7 @@ export function StepOptions() {
         <SwitchRow
           id="opt-install"
           label="필요한 도구 자동 설치"
-          description="스택에 필요한데 없는 도구를 만들기 전에 설치합니다 (Windows용 툴체인은 winget, WSL 쪽은 apt·설치 스크립트). 진행 상황은 생성 화면에 표시됩니다."
+          description="스택에 필요한데 없는 도구를 만들기 전에 winget·설치 스크립트로 설치합니다. 진행 상황은 생성 화면에 표시됩니다."
           checked={form.installTools}
           onChange={(v) => setField("installTools", v)}
         />

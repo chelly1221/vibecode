@@ -1,28 +1,29 @@
-//! End-to-end project creation through a real AppContext on the WSL backend
-//! (git lives in WSL on the dev machine). Uses a stack without a scaffold command so
-//! the test needs no network or toolchains. Skips when wsl.exe is unavailable.
+//! End-to-end project creation through a real AppContext on the Windows host. Uses a stack
+//! without a scaffold command so the test needs no network. Needs git (Git for Windows).
 
-use vibecode_core::backend::wsl::list_distros;
 use vibecode_core::projects::scaffold::{create_project, open_existing};
-use vibecode_core::types::{BackendConfig, BackendKind, CreateProjectRequest, Effort, PermissionPreset, ProjectType, Provider, ScaffoldEvent, TargetOs};
+use vibecode_core::types::{CreateProjectRequest, Effort, PermissionPreset, ProjectType, Provider, ScaffoldEvent, TargetOs};
 use vibecode_core::AppContext;
 
+/// `git` from PATH, else the default Git for Windows install (the test process may predate a PATH change).
+fn git_bin() -> Option<String> {
+    if which::which("git").is_ok() {
+        return None;
+    }
+    let p = std::path::Path::new("C:\\Program Files\\Git\\cmd\\git.exe");
+    p.is_file().then(|| p.to_string_lossy().into_owned())
+}
+
 #[tokio::test]
-async fn create_and_open_project_via_wsl() {
+async fn create_and_open_project_natively() {
     if !cfg!(windows) {
         return;
     }
-    let distros = list_distros().await;
-    let Some(distro) = distros.iter().find(|d| d.as_str() == "Ubuntu").cloned().or_else(|| distros.first().cloned()) else {
-        eprintln!("skipping: no WSL distro");
-        return;
-    };
-
     let data = tempfile::tempdir().unwrap();
     let ctx = AppContext::init(data.path().to_path_buf()).await.expect("ctx");
     let mut settings = ctx.settings().await;
-    settings.backend = BackendConfig { kind: BackendKind::Wsl, wsl_distro: Some(distro) };
-    ctx.update_settings(settings).await.expect("switch backend");
+    settings.git_bin = git_bin();
+    ctx.update_settings(settings).await.expect("settings");
 
     let parent = tempfile::tempdir().unwrap();
     let req = CreateProjectRequest {

@@ -43,7 +43,7 @@ impl Drop for HostInner {
 }
 
 /// Identifies the environment a running app-server belongs to.
-pub fn host_key(backend: &dyn ExecBackend, bin: Option<&str>) -> String {
+pub fn host_key(backend: &ExecBackend, bin: Option<&str>) -> String {
     format!("{}|{}", backend.label(), bin.unwrap_or("codex"))
 }
 
@@ -61,7 +61,7 @@ impl CodexHost {
 
     /// Ensure the app-server is running for `backend`/`bin`; (re)spawn when the
     /// environment changed or the previous process died.
-    pub async fn ensure_started(&self, backend: Arc<dyn ExecBackend>, bin: Option<String>) -> Result<()> {
+    pub async fn ensure_started(&self, backend: Arc<ExecBackend>, bin: Option<String>) -> Result<()> {
         let key = host_key(backend.as_ref(), bin.as_deref());
         let mut guard = self.inner.lock().await;
         if let Some(h) = guard.as_ref() {
@@ -208,7 +208,7 @@ impl CodexHost {
     pub async fn start_session(&self, args: StartArgs) -> Result<Arc<dyn AgentSession>> {
         self.ensure_started(args.backend.clone(), args.bin.clone()).await?;
         let rpc = self.rpc().await?;
-        let cwd_backend = args.backend.to_backend_path(&args.cwd);
+        let cwd_backend = args.cwd.to_string_lossy().into_owned();
         let cfg = args.config;
         let pol = mapping::policies_for(cfg.permission, &cwd_backend);
 

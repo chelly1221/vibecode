@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Mutex;
 
-use crate::backend::{process::spawn_tracked, CommandSpec, ExecBackend, PID_MARKER};
+use crate::backend::{process::spawn_tracked, ExecBackend};
 use crate::error::{CoreError, Result};
 use crate::types::{PreviewEvent, PreviewStatus};
 
@@ -18,8 +18,6 @@ struct Running {
     command: String,
     url: Option<String>,
     host_pid: Option<u32>,
-    backend_pid: Option<u32>,
-    backend: Arc<dyn ExecBackend>,
 }
 
 #[derive(Default)]
@@ -59,7 +57,7 @@ impl DevServerManager {
     /// Start `command` in `project_dir` (host path) through `backend`; stops any previous server of the project.
     pub async fn start(
         self: &Arc<Self>,
-        backend: Arc<dyn ExecBackend>,
+        backend: Arc<ExecBackend>,
         project_id: &str,
         project_dir: PathBuf,
         command: &str,
@@ -72,7 +70,7 @@ impl DevServerManager {
         self.stop(project_id).await.ok();
 
         let mut spec = backend.shell(&command, Some(&project_dir));
-        spec = spec.report_pid(true).env("BROWSER", "none").env("CI", "1").env("FORCE_COLOR", "0");
+        spec = spec.env("BROWSER", "none").env("CI", "1").env("FORCE_COLOR", "0");
         let mut cmd = backend.command(&spec);
         cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = spawn_tracked(&mut cmd)?;
@@ -80,7 +78,7 @@ impl DevServerManager {
         let stdout = child.stdout.take().ok_or_else(|| CoreError::msg("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| CoreError::msg("no stderr"))?;
 
-        let running = Arc::new(Mutex::new(Running { command: command.clone(), url: None, host_pid, backend_pid: None, backend: backend.clone() }));
+        let running = Arc::new(Mutex::new(Running { command: command.clone(), url: None, host_pid }));
         self.procs.lock().await.insert(project_id.to_string(), running.clone());
         let _ = events.send(PreviewEvent::Started { command: command.clone() });
 
@@ -104,12 +102,6 @@ impl DevServerManager {
         let t_err = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(rest) = line.strip_prefix(PID_MARKER) {
-                    if let Ok(pid) = rest.trim().parse::<u32>() {
-                        run_err.lock().await.backend_pid = Some(pid);
-                    }
-                    continue;
-                }
                 if let Some(url) = detect_url(&line) {
                     let mut r = run_err.lock().await;
                     if r.url.is_none() {
@@ -138,16 +130,11 @@ impl DevServerManager {
         Ok(())
     }
 
-    /// Stop the dev server (backend process tree first, then the host process tree).
+    /// Stop the dev server and its whole process tree (npm → node).
     pub async fn stop(&self, project_id: &str) -> Result<()> {
         let entry = self.procs.lock().await.remove(project_id);
         let Some(entry) = entry else { return Ok(()) };
         let r = entry.lock().await;
-        if let Some(pid) = r.backend_pid {
-            // kill children (node started by npm) and the shell/program itself
-            let spec = CommandSpec::new("bash").args(["-lc", &format!("pkill -TERM -P {pid}; kill -TERM {pid} 2>/dev/null; sleep 1; pkill -KILL -P {pid} 2>/dev/null; kill -KILL {pid} 2>/dev/null; true")]);
-            let _ = r.backend.run(&spec).await;
-        }
         if let Some(host) = r.host_pid {
             #[cfg(windows)]
             {

@@ -1,13 +1,11 @@
 // Pure helpers for the automatic tool install that runs while a project is created
 // (mirrors core::projects::install). Kept free of React/Tauri so they can be unit-tested.
-import type { InstallKind } from "@/lib/bindings/InstallKind";
 import type { InstallStatus } from "@/lib/bindings/InstallStatus";
-import type { ToolStatus, WindowsToolStatus } from "@/lib/ipc";
+import type { ToolStatus } from "@/lib/ipc";
 
 export interface InstallItem {
   name: string;
   label: string;
-  kind: InstallKind;
   status: InstallStatus;
   message: string | null;
   command: string | null;
@@ -17,8 +15,8 @@ export type InstallEvent = Omit<InstallItem, "status"> & { status: InstallStatus
 
 /** Upsert one install event into the list (events for one tool arrive as running → done/failed/skipped). */
 export function applyInstallEvent(items: InstallItem[], e: InstallEvent): InstallItem[] {
-  const next: InstallItem = { name: e.name, label: e.label, kind: e.kind, status: e.status, message: e.message, command: e.command };
-  const i = items.findIndex((it) => it.name === e.name && it.kind === e.kind);
+  const next: InstallItem = { name: e.name, label: e.label, status: e.status, message: e.message, command: e.command };
+  const i = items.findIndex((it) => it.name === e.name);
   if (i < 0) return [...items, next];
   const copy = items.slice();
   copy[i] = next;
@@ -57,6 +55,7 @@ export function toolLabel(name: string): string {
     npm: "npm",
     cargo: "Rust (cargo)",
     rustup: "rustup",
+    msvc: "Visual Studio Build Tools (C++ 링커)",
     python: "Python 3",
     uv: "uv (Python 패키지 관리자)",
     dotnet: ".NET SDK",
@@ -81,8 +80,8 @@ export function runnableHint(hint: string | null | undefined): boolean {
  * What creation will install automatically for a plan, and what the user must install by hand.
  * Tools sharing one install command (node/npm) are listed once.
  */
-export function plannedInstalls(windows: WindowsToolStatus[], missing: ToolStatus[]): { auto: string[]; manual: string[]; hasWindows: boolean } {
-  const auto: string[] = windows.filter((t) => !t.found).map((t) => t.label);
+export function plannedInstalls(missing: ToolStatus[]): { auto: string[]; manual: string[] } {
+  const auto: string[] = [];
   const manual: string[] = [];
   const seen = new Set<string>();
   for (const t of missing) {
@@ -95,5 +94,5 @@ export function plannedInstalls(windows: WindowsToolStatus[], missing: ToolStatu
     seen.add(t.install_hint!);
     auto.push(toolLabel(t.name));
   }
-  return { auto, manual, hasWindows: windows.some((t) => !t.found) };
+  return { auto, manual };
 }

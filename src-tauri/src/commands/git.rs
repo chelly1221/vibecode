@@ -20,6 +20,13 @@ pub async fn git_status(state: State<'_, AppState>, project_id: String) -> Resul
     git.status(&repo).await.map_err(err)
 }
 
+/// `git init -b main` in the project folder (GUI replacement for running git init by hand).
+#[tauri::command]
+pub async fn git_init(state: State<'_, AppState>, project_id: String) -> Result<(), String> {
+    let (git, repo) = git_for(&state, &project_id).await?;
+    git.init(&repo, "main").await.map_err(err)
+}
+
 #[tauri::command]
 pub async fn git_diff(state: State<'_, AppState>, project_id: String, path: Option<String>, staged: bool) -> Result<String, String> {
     let (git, repo) = git_for(&state, &project_id).await?;

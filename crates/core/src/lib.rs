@@ -1,23 +1,22 @@
-//! vibecode core library. Tauri-independent: agent adapters, execution backends,
+//! vibecode core library. Tauri-independent: agent adapters, host command execution,
 //! git/GitHub, project scaffolding, persistence, secrets and PTY sessions.
 //!
 //! Module ownership (see CLAUDE.md):
 //! - `types`      shared serializable types exported to TypeScript via ts-rs
-//! - `backend`    command execution on Windows natively or inside WSL (path mapping)
+//! - `backend`    command execution on the Windows host (PATH resolution, .cmd shims, no console window)
 //! - `agents`     `AgentSession` trait + Claude Code / Codex adapters
 //! - `permission` in-app MCP HTTP server used as Claude's `--permission-prompt-tool`
 //! - `git`        git operations through the backend (+ `git::ssh` key helpers)
 //! - `checkpoint` working-tree snapshots per agent turn and rollback
 //! - `fs`         read-only project file listing/reading for the explorer
 //! - `github`     GitHub REST (create repo, whoami)
-//! - `managed`    app-owned WSL distribution: WSL detection/installation, rootfs provisioning
-//! - `projects`   stack catalog, automatic prerequisite install (`projects::install`), scaffolding, CLAUDE.md/AGENTS.md generation
+//! - `projects`   stack catalog, automatic prerequisite install (`projects::install`), scaffolding, CLAUDE.md/AGENTS.md
+//!                generation and mirroring (`projects::docs_sync`)
 //! - `db`         SQLite persistence (projects, sessions, messages, settings)
 //! - `secrets`    OS keyring wrapper
 //! - `pty`        interactive terminal sessions (login flows)
 //! - `preview`    dev-server runner for the UI preview
 //! - `tools`      CLI detection and auth status
-//! - `toolchain`  Windows toolchain (cargo.exe, node.exe, dotnet.exe …) detection, winget install script and WSL shims
 
 pub mod agents;
 pub mod backend;
@@ -28,13 +27,11 @@ pub mod error;
 pub mod fs;
 pub mod git;
 pub mod github;
-pub mod managed;
 pub mod permission;
 pub mod preview;
 pub mod projects;
 pub mod pty;
 pub mod secrets;
-pub mod toolchain;
 pub mod tools;
 pub mod types;
 

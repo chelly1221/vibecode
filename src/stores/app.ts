@@ -74,7 +74,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sessions = await ipc.sessions.list(projectId);
     set((s) => ({ sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions } }));
   },
-  selectProject: (id) => set({ activeProjectId: id, activeSessionId: null }),
+  selectProject: (id) => {
+    set({ activeProjectId: id, activeSessionId: null });
+    // Keep the two agent instruction files identical whenever a project comes into focus.
+    if (id) ipc.projects.syncAgentDocs(id).catch(() => {});
+  },
   selectSession: (id) => set({ activeSessionId: id }),
   setWizardOpen: (open) => set({ wizardOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),

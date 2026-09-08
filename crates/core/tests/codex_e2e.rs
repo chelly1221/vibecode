@@ -1,22 +1,13 @@
 //! Smoke test against the real `codex app-server`. Ignored by default; run with
 //! `VIBECODE_E2E=1 cargo.exe test -p vibecode-core --test codex_e2e -- --ignored --nocapture`.
-//! On Windows it runs through WSL (`VIBECODE_WSL_DISTRO`, default "Ubuntu").
 
 use std::sync::Arc;
 
 use vibecode_core::agents::codex::CodexHost;
 use vibecode_core::backend::ExecBackend;
 
-fn backend() -> Arc<dyn ExecBackend> {
-    #[cfg(windows)]
-    {
-        let distro = std::env::var("VIBECODE_WSL_DISTRO").unwrap_or_else(|_| "Ubuntu".into());
-        Arc::new(vibecode_core::backend::wsl::WslBackend::new(distro))
-    }
-    #[cfg(not(windows))]
-    {
-        Arc::new(vibecode_core::backend::native::NativeBackend::new())
-    }
+fn backend() -> Arc<ExecBackend> {
+    Arc::new(ExecBackend::new())
 }
 
 #[tokio::test]
@@ -78,7 +69,7 @@ async fn e2e_thread_start_accepts_mcp_config_overrides() {
         providers: vec![],
     }];
     let overrides = vibecode_core::agents::codex::mapping::mcp_config_overrides(&servers);
-    let cwd = b.to_backend_path(&std::env::temp_dir());
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
     let params = serde_json::json!({ "cwd": cwd, "approvalPolicy": "never", "sandbox": "read-only", "serviceName": "vibecode", "ephemeral": true, "config": serde_json::Value::Object(overrides) });
     let v = rpc.request("thread/start", params).await.expect("thread/start with mcp config overrides");
     let thread_id = v["thread"]["id"].as_str().expect("thread id").to_string();

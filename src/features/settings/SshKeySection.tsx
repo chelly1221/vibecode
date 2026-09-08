@@ -71,7 +71,7 @@ export function SshKeySection({ compact = false }: { compact?: boolean }) {
       </h3>
       {!compact && (
         <p className="text-xs text-muted-foreground">
-          GitHub에 푸시하려면 실행 환경의 SSH 공개키를 GitHub 계정에 등록해야 합니다. 전용 환경은 처음에 키가 없으므로 여기서 만드세요.
+          GitHub에 SSH로 푸시하려면 이 PC의 SSH 공개키(~/.ssh)를 GitHub 계정에 등록해야 합니다. 키가 없으면 여기서 만드세요.
         </p>
       )}
       {info === undefined && <p className="text-xs text-muted-foreground">확인 중…</p>}

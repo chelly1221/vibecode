@@ -15,7 +15,6 @@ import type { SshKeyInfo } from "./bindings/SshKeyInfo";
 import type { StackRecommendRequest } from "./bindings/StackRecommendRequest";
 import type { StackRecommendation } from "./bindings/StackRecommendation";
 import type { AuthStatus } from "./bindings/AuthStatus";
-import type { BackendConfig } from "./bindings/BackendConfig";
 import type { CreateProjectRequest } from "./bindings/CreateProjectRequest";
 import type { GitBranch } from "./bindings/GitBranch";
 import type { GitCommit } from "./bindings/GitCommit";
@@ -23,7 +22,9 @@ import type { GitHubRepo } from "./bindings/GitHubRepo";
 import type { GitHubUser } from "./bindings/GitHubUser";
 import type { GitStatus } from "./bindings/GitStatus";
 import type { MessageRecord } from "./bindings/MessageRecord";
+import type { LoginEvent } from "./bindings/LoginEvent";
 import type { ModelInfo } from "./bindings/ModelInfo";
+import type { ToolInstallEvent } from "./bindings/ToolInstallEvent";
 import type { PermissionReply } from "./bindings/PermissionReply";
 import type { PreviewEvent } from "./bindings/PreviewEvent";
 import type { PreviewStatus } from "./bindings/PreviewStatus";
@@ -31,7 +32,6 @@ import type { ProjectPlan } from "./bindings/ProjectPlan";
 import type { ProjectPlanRequest } from "./bindings/ProjectPlanRequest";
 import type { ProjectRecord } from "./bindings/ProjectRecord";
 import type { ProjectType } from "./bindings/ProjectType";
-import type { ProvisionEvent } from "./bindings/ProvisionEvent";
 import type { Provider } from "./bindings/Provider";
 import type { PtyEvent } from "./bindings/PtyEvent";
 import type { PtySpec } from "./bindings/PtySpec";
@@ -43,8 +43,6 @@ import type { SessionRecord } from "./bindings/SessionRecord";
 import type { StackInfo } from "./bindings/StackInfo";
 import type { TargetOs } from "./bindings/TargetOs";
 import type { ToolStatus } from "./bindings/ToolStatus";
-import type { WindowsToolStatus } from "./bindings/WindowsToolStatus";
-import type { WslStatus } from "./bindings/WslStatus";
 
 export interface PreviewBounds {
   x: number;
@@ -66,26 +64,20 @@ export const ipc = {
   },
 
   tools: {
-    /** Detect tools on the active backend, or on `backend` for onboarding previews. */
-    detect: (backend?: BackendConfig) => invoke<ToolStatus[]>("tools_detect", { backend: backend ?? null }),
-    /** Auth status on the active backend, or on `backend` for onboarding previews. */
-    authStatus: (provider: Provider, backend?: BackendConfig) =>
-      invoke<AuthStatus>("tools_auth_status", { provider, backend: backend ?? null }),
-    listWslDistros: () => invoke<string[]>("tools_list_wsl_distros"),
+    /** Detect tools on the Windows host (honours the binaries set in settings). */
+    detect: () => invoke<ToolStatus[]>("tools_detect"),
+    /** Login state of a provider's CLI. */
+    authStatus: (provider: Provider) => invoke<AuthStatus>("tools_auth_status", { provider }),
+    /** Install a known tool in the background (winget / install script); streams log lines, resolves with the re-detected status. */
+    install: (name: string, onEvent: (e: ToolInstallEvent) => void) => invoke<ToolStatus>("tools_install", { name, onEvent: channel(onEvent) }),
+    /** GUI login: runs the CLI login in a hidden PTY and streams URL / code prompt / result. Resolves with the login id. */
+    loginStart: (provider: Provider, onEvent: (e: LoginEvent) => void) => invoke<string>("tools_login_start", { provider, onEvent: channel(onEvent) }),
+    loginCode: (loginId: string, code: string) => invoke<void>("tools_login_code", { loginId, code }),
+    loginCancel: (loginId: string) => invoke<void>("tools_login_cancel", { loginId }),
     listModels: (provider: Provider) => invoke<ModelInfo[]>("models_list", { provider }),
   },
 
   env: {
-    /** WSL installation state plus whether the app-owned "Vibecoder" distro exists / is ready. */
-    wslStatus: () => invoke<WslStatus>("env_wsl_status"),
-    /** Elevated `wsl --install --no-distribution`; resolves with the exit code (reboot needed afterwards). */
-    installWsl: () => invoke<number>("env_install_wsl"),
-    reboot: () => invoke<void>("env_reboot"),
-    /** Reboot into advanced startup (문제 해결 → 고급 옵션 → UEFI 펌웨어 설정). */
-    rebootToFirmware: () => invoke<void>("env_reboot_to_firmware"),
-    /** Download rootfs, import the distro, install tools. Streams progress to `onEvent`. */
-    provision: (onEvent: (e: ProvisionEvent) => void) => invoke<void>("env_provision", { onEvent: channel(onEvent) }),
-    removeManaged: () => invoke<void>("env_remove_managed"),
     /** SSH key on the active backend (for GitHub pushes). */
     sshKeyInfo: () => invoke<SshKeyInfo>("env_ssh_key_info"),
     sshGenerateKey: () => invoke<SshKeyInfo>("env_ssh_generate_key"),
@@ -102,6 +94,8 @@ export const ipc = {
     /** Register an existing directory (created outside the app); stack is detected heuristically. */
     open: (path: string) => invoke<ProjectRecord>("projects_open", { path }),
     agentDocsStatus: (id: string) => invoke<AgentDocsStatus>("projects_agent_docs_status", { id }),
+    /** Make CLAUDE.md / AGENTS.md identical (missing one cloned, newest wins); resolves with the file written, if any. */
+    syncAgentDocs: (id: string) => invoke<string[]>("projects_sync_agent_docs", { id }),
     /** Write CLAUDE.md / AGENTS.md when missing; resolves with the file names written. */
     generateAgentDocs: (id: string, description?: string) =>
       invoke<string[]>("projects_generate_agent_docs", { id, description: description ?? null }),
@@ -113,16 +107,6 @@ export const ipc = {
     stacksAiRecommend: (req: StackRecommendRequest) => invoke<StackRecommendation[]>("stacks_ai_recommend", { req }),
     /** "Describe it in one line": the agent picks name, folder, target, type and stack. */
     aiPlan: (req: ProjectPlanRequest) => invoke<ProjectPlan>("projects_ai_plan", { req }),
-  },
-
-  /** Windows toolchain used from WSL (cargo.exe, node.exe, dotnet.exe ... via interop). */
-  toolchain: {
-    /** Status of the toolchains a stack needs (all known ones when no stack is given). */
-    status: (stackId?: string | null) => invoke<WindowsToolStatus[]>("toolchain_status", { stackId: stackId ?? null }),
-    /** PowerShell script installing the named toolchains with winget (run it in a host terminal). */
-    installScript: (names: string[]) => invoke<string>("toolchain_install_script", { names }),
-    /** Detect everything and (re)write the shims in the active WSL distro; resolves with the shim names. */
-    writeShims: () => invoke<string[]>("toolchain_write_shims"),
   },
 
   sessions: {
@@ -179,6 +163,8 @@ export const ipc = {
 
   git: {
     status: (projectId: string) => invoke<GitStatus>("git_status", { projectId }),
+    /** `git init -b main` in the project folder. */
+    init: (projectId: string) => invoke<void>("git_init", { projectId }),
     diff: (projectId: string, path: string | null, staged: boolean) =>
       invoke<string>("git_diff", { projectId, path, staged }),
     stage: (projectId: string, paths: string[]) => invoke<void>("git_stage", { projectId, paths }),
@@ -226,9 +212,7 @@ export type {
   StackRecommendation,
   ProjectPlanRequest,
   ProjectPlan,
-  WindowsToolStatus,
   AuthStatus,
-  BackendConfig,
   CreateProjectRequest,
   GitBranch,
   GitCommit,
@@ -236,14 +220,15 @@ export type {
   GitHubUser,
   GitStatus,
   MessageRecord,
+  LoginEvent,
   ModelInfo,
+  ToolInstallEvent,
   PermissionReply,
   PreviewEvent,
   PreviewStatus,
   ProjectRecord,
   ProjectType,
   Provider,
-  ProvisionEvent,
   PtyEvent,
   PtySpec,
   ScaffoldEvent,
@@ -254,5 +239,4 @@ export type {
   StackInfo,
   TargetOs,
   ToolStatus,
-  WslStatus,
 };

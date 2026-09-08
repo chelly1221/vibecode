@@ -14,8 +14,7 @@ use super::ai_recommend::{claude_structured, extract_json_object};
 use super::{catalog, scaffold};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
-use crate::toolchain;
-use crate::types::{BackendKind, ProjectPlan, ProjectPlanRequest, ProjectType, Provider, StackInfo, TargetOs, ToolStatus, WindowsToolStatus};
+use crate::types::{ProjectPlan, ProjectPlanRequest, ProjectType, Provider, StackInfo, TargetOs, ToolStatus};
 
 pub const SCHEMA: &str = r#"{"type":"object","properties":{"name":{"type":"string"},"dir_name":{"type":"string"},"target_os":{"type":"string","enum":["windows","macos","linux","cross_desktop","web","android","ios","server"]},"project_type":{"type":"string","enum":["desktop_app","web_app","mobile_app","cli","api_server","library","game","script"]},"stack_id":{"type":"string"},"summary":{"type":"string"},"reason":{"type":"string"}},"required":["name","dir_name","target_os","project_type","stack_id","summary","reason"]}"#;
 
@@ -29,10 +28,7 @@ fn parse_enum<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
 
 /// Environment facts handed to the agent.
 pub struct EnvFacts<'a> {
-    pub backend: BackendKind,
     pub tools: &'a [ToolStatus],
-    /// Windows toolchain statuses (WSL backend only; empty otherwise).
-    pub windows: &'a [WindowsToolStatus],
 }
 
 pub fn build_prompt(description: &str, stacks: &[StackInfo], env: &EnvFacts<'_>) -> String {
@@ -50,35 +46,25 @@ pub fn build_prompt(description: &str, stacks: &[StackInfo], env: &EnvFacts<'_>)
     out.push_str("## 사용자 설명\n");
     out.push_str(description.trim());
     out.push_str("\n\n## 실행 환경\n");
-    match env.backend {
-        BackendKind::Wsl => {
-            out.push_str("- 에이전트와 빌드는 WSL(리눅스) 안에서 실행된다. 결과물이 Windows 프로그램이어야 하는 스택(카탈로그의 'Windows 툴체인' 항목이 있는 스택)은 아래 Windows 툴체인이 추가로 필요하다.\n");
-        }
-        BackendKind::Native => out.push_str("- 에이전트와 빌드는 Windows에서 직접 실행된다.\n"),
-    }
+    out.push_str("- 에이전트와 빌드는 Windows에서 직접 실행된다.\n");
     let found: Vec<&str> = env.tools.iter().filter(|t| t.found).map(|t| t.name.as_str()).collect();
     let missing: Vec<&str> = env.tools.iter().filter(|t| !t.found).map(|t| t.name.as_str()).collect();
     out.push_str(&format!("- 설치된 도구: {}\n", if found.is_empty() { "(확인 불가)".to_string() } else { found.join(", ") }));
     if !missing.is_empty() {
         out.push_str(&format!("- 설치되지 않은 도구: {}\n", missing.join(", ")));
     }
-    if !env.windows.is_empty() {
-        let w: Vec<String> = env.windows.iter().map(|s| format!("{}({})", s.name, if s.found { "있음" } else { "없음" })).collect();
-        out.push_str(&format!("- Windows 툴체인: {}\n", w.join(", ")));
-    }
     out.push_str("\n## 카탈로그\n");
     for s in stacks {
         let targets: Vec<String> = s.targets.iter().map(enum_str::<TargetOs>).collect();
         let types: Vec<String> = s.types.iter().map(enum_str::<ProjectType>).collect();
         out.push_str(&format!(
-            "- id: {} | 이름: {} | 언어: {} | 대상: {} | 유형: {} | 필요 도구: {} | Windows 툴체인: {} | 요약: {}\n",
+            "- id: {} | 이름: {} | 언어: {} | 대상: {} | 유형: {} | 필요 도구: {} | 요약: {}\n",
             s.id,
             s.name,
             s.languages.join("/"),
             targets.join(","),
             types.join(","),
             if s.prerequisites.is_empty() { "-".to_string() } else { s.prerequisites.join(",") },
-            if s.windows_toolchain.is_empty() { "-".to_string() } else { s.windows_toolchain.join(",") },
             s.summary.replace('\n', " ")
         ));
     }
@@ -167,13 +153,11 @@ pub async fn plan(ctx: Arc<AppContext>, req: ProjectPlanRequest) -> Result<Proje
     }
     let stacks = catalog::load()?;
     let backend = ctx.backend().await;
-    let kind = backend.kind();
 
     // Environment facts (best effort, bounded).
     let tools = tokio::time::timeout(Duration::from_secs(25), crate::tools::detect_all(backend.clone())).await.unwrap_or_default();
-    let windows = if kind == BackendKind::Wsl { tokio::time::timeout(Duration::from_secs(25), toolchain::detect(&[])).await.unwrap_or_default() } else { vec![] };
 
-    let prompt = build_prompt(description, &stacks, &EnvFacts { backend: kind, tools: &tools, windows: &windows });
+    let prompt = build_prompt(description, &stacks, &EnvFacts { tools: &tools });
     let bin = ctx.bin_override(req.provider).await;
     let cwd = std::env::temp_dir();
     let raw_value = match req.provider {
@@ -186,17 +170,8 @@ pub async fn plan(ctx: Arc<AppContext>, req: ProjectPlanRequest) -> Result<Proje
     let name = if scaffold::valid_display_name(&raw.name) { raw.name.trim().to_string() } else { dir_name.clone() };
 
     let stack = raw.stack_id.as_deref().and_then(|id| stacks.iter().find(|s| s.id == id));
-    let applies = toolchain::applies(kind, Some(raw.target_os), stack);
-    let required: Vec<&str> = match stack {
-        Some(s) if applies => toolchain::uncovered_prerequisites(s),
-        Some(s) => s.prerequisites.iter().map(String::as_str).collect(),
-        None => vec![],
-    };
+    let required: Vec<&str> = stack.map(|s| s.prerequisites.iter().map(String::as_str).collect()).unwrap_or_default();
     let missing_tools: Vec<ToolStatus> = tools.iter().filter(|t| !t.found && required.contains(&t.name.as_str())).cloned().collect();
-    let windows_toolchain: Vec<WindowsToolStatus> = match stack {
-        Some(s) if applies => windows.iter().filter(|w| s.windows_toolchain.contains(&w.name)).cloned().collect(),
-        _ => vec![],
-    };
 
     Ok(ProjectPlan {
         name,
@@ -207,7 +182,6 @@ pub async fn plan(ctx: Arc<AppContext>, req: ProjectPlanRequest) -> Result<Proje
         summary: if raw.summary.is_empty() { description.to_string() } else { raw.summary },
         reason: raw.reason,
         missing_tools,
-        windows_toolchain,
     })
 }
 
@@ -225,13 +199,13 @@ mod tests {
     fn prompt_lists_catalog_and_env() {
         let stacks = catalog::load().unwrap();
         let t = tools(&["node", "npm", "git"], &["cargo", "dotnet"]);
-        let p = build_prompt("부서 비품 대여 기록", &stacks, &EnvFacts { backend: BackendKind::Wsl, tools: &t, windows: &[] });
+        let p = build_prompt("부서 비품 대여 기록", &stacks, &EnvFacts { tools: &t });
         assert!(p.contains("부서 비품 대여 기록"));
         assert!(p.contains("설치된 도구: node, npm, git"));
         assert!(p.contains("설치되지 않은 도구: cargo, dotnet"));
         assert!(p.contains("id: nextjs"));
-        assert!(p.contains("Windows 툴체인: node,rust,msvc"));
-        assert!(p.contains("WSL(리눅스)"));
+        assert!(p.contains("필요 도구: node/npm/cargo/rustup/msvc") || p.contains("필요 도구: node, npm, cargo, rustup, msvc") || p.contains("msvc"));
+        assert!(p.contains("Windows에서 직접 실행"));
     }
 
     #[test]

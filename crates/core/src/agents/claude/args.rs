@@ -92,8 +92,7 @@ pub fn build_spec(plan: &SpawnPlan) -> CommandSpec {
             "--replay-user-messages",
             "--forward-subagent-text",
         ])
-        .cwd(plan.cwd)
-        .report_pid(true);
+        .cwd(plan.cwd);
 
     if let Some(model) = cfg.model.as_deref().filter(|m| !m.trim().is_empty()) {
         spec = spec.args(["--model", model.trim()]);
@@ -167,7 +166,6 @@ mod tests {
         assert!(a.contains("--permission-prompts host --permission-prompt-tool stdio"));
         assert!(!a.contains("--resume"));
         assert!(!a.contains("--bare"));
-        assert!(spec.report_pid);
         assert_eq!(spec.cwd.as_deref(), Some(Path::new("C:\\p")));
     }
 

@@ -7,14 +7,13 @@ use std::sync::Arc;
 use chrono::Utc;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::{agent_docs, catalog, install};
+use super::{agent_docs, catalog, docs_sync, install};
 use crate::backend::{process, ExecBackend};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
 use crate::git::Git;
 use crate::github::GitHubClient;
-use crate::toolchain;
-use crate::types::{BackendKind, CreateProjectRequest, ProjectRecord, ScaffoldEvent, StackInfo, WindowsToolStatus};
+use crate::types::{CreateProjectRequest, ProjectRecord, ScaffoldEvent, StackInfo};
 
 struct Reporter(UnboundedSender<ScaffoldEvent>);
 
@@ -51,7 +50,7 @@ fn join_host(parent: &str, name: &str) -> String {
 }
 
 /// Run a scaffold command in `parent`, streaming output lines. Fails on non-zero exit.
-async fn run_streaming(backend: &Arc<dyn ExecBackend>, script: &str, parent: &Path, rep: &Reporter) -> Result<()> {
+async fn run_streaming(backend: &Arc<ExecBackend>, script: &str, parent: &Path, rep: &Reporter) -> Result<()> {
     let spec = backend.shell(script, Some(parent));
     let mut cmd = backend.command(&spec);
     // Non-interactive hints for common scaffolders.
@@ -106,12 +105,8 @@ fn write_if_missing(path: &Path, content: &str) -> Result<bool> {
     Ok(true)
 }
 
-async fn has_ssh_keys(backend: &Arc<dyn ExecBackend>) -> bool {
-    let script = match backend.kind() {
-        BackendKind::Wsl => "ls ~/.ssh/id_* >/dev/null 2>&1".to_string(),
-        BackendKind::Native => "if (Test-Path \"$env:USERPROFILE\\.ssh\\id_*\") { exit 0 } else { exit 1 }".to_string(),
-    };
-    let spec = backend.shell(&script, None);
+async fn has_ssh_keys(backend: &Arc<ExecBackend>) -> bool {
+    let spec = backend.shell("if (Test-Path \"$env:USERPROFILE\\.ssh\\id_*\") { exit 0 } else { exit 1 }", None);
     matches!(backend.run(&spec).await, Ok(out) if out.success())
 }
 
@@ -169,11 +164,11 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     let backend = ctx.backend().await;
     rep.log(format!("실행 백엔드: {}", backend.label()));
 
-    // Install what the stack needs first (winget on the host for Windows toolchains, install hints on the
-    // backend). Failures are reported, not fatal: the project is still created and the docs list what is missing.
+    // Install what the stack needs first (winget / install scripts in PowerShell). Failures are reported, not
+    // fatal: the project is still created and the docs list what is missing.
     if req.install_missing_tools {
         rep.step("필요한 도구 확인");
-        let summary = install::install_missing(backend.clone(), stack.as_ref(), req.target_os, &rep.0).await;
+        let summary = install::install_missing(backend.clone(), stack.as_ref(), &rep.0).await;
         if summary.total == 0 {
             rep.log("필요한 도구가 모두 준비되어 있습니다.");
         } else {
@@ -189,36 +184,10 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
         }
     }
 
-    // WSL + Windows-target stack: connect the Windows toolchain (cargo.exe, npm.cmd, ...) before scaffolding
-    // so the scaffold command and the agent both use the Windows tools.
-    let win_toolchain: Option<Vec<WindowsToolStatus>> = if toolchain::applies(backend.kind(), Some(req.target_os), stack.as_ref()) {
-        rep.step("Windows 툴체인 연결");
-        let names = stack.as_ref().map(|s| s.windows_toolchain.clone()).unwrap_or_default();
-        let statuses = toolchain::detect(&names).await;
-        for st in &statuses {
-            if st.found {
-                rep.log(format!("{}: {}{}", st.label, st.path.clone().unwrap_or_default(), st.version.as_deref().map(|v| format!(" ({v})")).unwrap_or_default()));
-            } else {
-                rep.warn(format!("{} 없음 → Windows PowerShell에서 설치: winget install -e --id {}", st.label, st.winget_id));
-            }
-        }
-        match toolchain::write_shims(backend.clone(), &statuses).await {
-            Ok(shims) if !shims.is_empty() => rep.log(format!("WSL shim 갱신: {}", shims.join(" "))),
-            Ok(_) => rep.warn("연결할 Windows 툴체인이 없어 shim을 만들지 않았습니다."),
-            Err(e) => rep.warn(format!("shim 작성 실패: {e}")),
-        }
-        Some(statuses)
-    } else {
-        None
-    };
-
     rep.step("스캐폴딩");
     match stack.as_ref().and_then(|s| s.scaffold_cmd.as_deref()) {
         Some(cmd) => {
-            let mut script = cmd.replace("{name}", name);
-            if win_toolchain.is_some() {
-                script = toolchain::rewrite_command(&script);
-            }
+            let script = cmd.replace("{name}", name);
             rep.log(format!("$ {script}"));
             run_streaming(&backend, &script, &parent, rep).await?;
             if !target.is_dir() {
@@ -252,10 +221,10 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
 
     if req.generate_agent_docs {
         rep.step("에이전트 문서 생성");
-        let docs = agent_docs::generate(&project, stack.as_ref(), &req.description, win_toolchain.as_deref());
-        std::fs::write(target.join("AGENTS.md"), docs.agents_md)?;
-        std::fs::write(target.join("CLAUDE.md"), docs.claude_md)?;
-        rep.log("CLAUDE.md, AGENTS.md 생성");
+        let doc = agent_docs::generate(&project, stack.as_ref(), &req.description);
+        std::fs::write(target.join("AGENTS.md"), &doc)?;
+        std::fs::write(target.join("CLAUDE.md"), &doc)?;
+        rep.log("CLAUDE.md, AGENTS.md 생성 (같은 내용, 앱이 계속 동기화)");
     }
 
     if req.git_init {
@@ -320,6 +289,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
     }
 
     ctx.db.upsert_project(&project)?;
+    ctx.docs_sync.watch(&target);
     rep.step("완료");
     Ok(project)
 }
@@ -394,6 +364,7 @@ pub async fn open_existing(ctx: Arc<AppContext>, path: &str) -> Result<ProjectRe
     }
     if let Some(existing) = ctx.db.find_project_by_path(trimmed)? {
         ctx.db.touch_project(&existing.id)?;
+        ctx.docs_sync.watch(&dir);
         return ctx.db.get_project(&existing.id);
     }
     let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| trimmed.to_string());
@@ -419,7 +390,20 @@ pub async fn open_existing(ctx: Arc<AppContext>, path: &str) -> Result<ProjectRe
         last_opened_at: now,
     };
     ctx.db.upsert_project(&project)?;
+    ctx.docs_sync.watch(&dir);
     Ok(project)
+}
+
+/// Make CLAUDE.md and AGENTS.md identical for a registered project (missing one is cloned from the
+/// other, otherwise the newer content wins). Returns the file name that was written, if any.
+pub fn sync_agent_docs(ctx: &AppContext, project_id: &str) -> Result<Vec<String>> {
+    let project = ctx.db.get_project(project_id)?;
+    let dir = PathBuf::from(&project.path);
+    if !dir.is_dir() {
+        return Err(CoreError::msg(format!("디렉터리를 찾을 수 없습니다: {}", project.path)));
+    }
+    ctx.docs_sync.watch(&dir);
+    Ok(docs_sync::reconcile(&dir)?.written().map(|f| vec![f.to_string()]).unwrap_or_default())
 }
 
 /// Display names may contain any characters except path separators / Windows-reserved ones.
@@ -524,26 +508,16 @@ pub async fn generate_agent_docs_if_missing(ctx: Arc<AppContext>, project_id: &s
         Some(id) => catalog::get(id)?,
         None => None,
     };
-    let backend = ctx.backend().await;
-    let win_toolchain = if toolchain::applies(backend.kind(), project.target_os, stack.as_ref()) {
-        let names = stack.as_ref().map(|s| s.windows_toolchain.clone()).unwrap_or_default();
-        let statuses = toolchain::detect(&names).await;
-        let _ = toolchain::write_shims(backend.clone(), &statuses).await;
-        Some(statuses)
-    } else {
-        None
-    };
-    let docs = agent_docs::generate(&project, stack.as_ref(), description, win_toolchain.as_deref());
-    let mut written = Vec::new();
-    let claude = dir.join("CLAUDE.md");
-    if !claude.exists() {
-        std::fs::write(&claude, docs.claude_md)?;
-        written.push("CLAUDE.md".to_string());
+    // One of them exists → clone it rather than generating something different.
+    if let Some(f) = docs_sync::reconcile(&dir)?.written() {
+        return Ok(vec![f.to_string()]);
     }
-    let agents = dir.join("AGENTS.md");
-    if !agents.exists() {
-        std::fs::write(&agents, docs.agents_md)?;
-        written.push("AGENTS.md".to_string());
+    if dir.join("CLAUDE.md").exists() || dir.join("AGENTS.md").exists() {
+        return Ok(vec![]);
     }
-    Ok(written)
+    let doc = agent_docs::generate(&project, stack.as_ref(), description);
+    std::fs::write(dir.join("AGENTS.md"), &doc)?;
+    std::fs::write(dir.join("CLAUDE.md"), &doc)?;
+    ctx.docs_sync.watch(&dir);
+    Ok(vec!["CLAUDE.md".to_string(), "AGENTS.md".to_string()])
 }

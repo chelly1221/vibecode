@@ -1,22 +1,12 @@
 //! SSH key helpers on the active backend (ed25519 key for GitHub pushes).
-//! WSL backends run bash snippets; the native backend runs the same steps in PowerShell
+//! Runs small PowerShell snippets against the user's ~/.ssh
 //! using the Windows OpenSSH client.
 
 use std::sync::Arc;
 
 use crate::backend::{CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
-use crate::types::{BackendKind, SshKeyInfo};
-
-const INFO_BASH: &str = r#"for k in id_ed25519 id_rsa; do
-  if [ -f "$HOME/.ssh/$k.pub" ]; then echo "KEYPATH=$HOME/.ssh/$k"; echo "PUBKEY=$(cat "$HOME/.ssh/$k.pub")"; break; fi
-done
-if [ -f "$HOME/.ssh/known_hosts" ] && grep -q "github.com" "$HOME/.ssh/known_hosts"; then echo KNOWN=1; else echo KNOWN=0; fi"#;
-
-const GENERATE_BASH: &str = r#"set -e
-mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
-if [ ! -f "$HOME/.ssh/id_ed25519" ] && [ ! -f "$HOME/.ssh/id_rsa" ]; then ssh-keygen -q -t ed25519 -N "" -C vibecoder -f "$HOME/.ssh/id_ed25519"; fi
-if ! grep -q "github.com" "$HOME/.ssh/known_hosts" 2>/dev/null; then ssh-keyscan -t ed25519,rsa github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null || true; fi"#;
+use crate::types::SshKeyInfo;
 
 const INFO_PS: &str = r#"$ssh = Join-Path $env:USERPROFILE ".ssh"
 foreach ($k in @("id_ed25519","id_rsa")) { $p = Join-Path $ssh "$k.pub"; if (Test-Path $p) { "KEYPATH=" + (Join-Path $ssh $k); "PUBKEY=" + ((Get-Content $p -Raw).Trim()); break } }
@@ -49,35 +39,28 @@ fn parse_info(stdout: &str) -> SshKeyInfo {
     info
 }
 
-/// Scripts are written to a temp file and executed by path: multi-line scripts with quotes and
-/// `$` do not survive the nested `wsl.exe → bash -lc` quoting reliably.
-async fn run_script(backend: &Arc<dyn ExecBackend>, bash: &str, ps: &str) -> Result<crate::backend::CommandOutput> {
-    let (body, ext) = match backend.kind() {
-        BackendKind::Wsl => (bash, "sh"),
-        BackendKind::Native => (ps, "ps1"),
-    };
-    let path = std::env::temp_dir().join(format!("vibecoder-ssh-{}.{ext}", uuid::Uuid::new_v4()));
-    let mut bytes: Vec<u8> = if ext == "ps1" { vec![0xEF, 0xBB, 0xBF] } else { vec![] };
-    bytes.extend_from_slice(body.replace("\r\n", "\n").as_bytes());
+/// Scripts are written to a temp file (UTF-8 BOM so PowerShell reads Korean text) and executed by path:
+/// multi-line scripts with quotes and `$` do not survive `-Command` quoting reliably.
+async fn run_script(backend: &Arc<ExecBackend>, ps: &str) -> Result<crate::backend::CommandOutput> {
+    let path = std::env::temp_dir().join(format!("vibecoder-ssh-{}.ps1", uuid::Uuid::new_v4()));
+    let mut bytes: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ps.replace("\r\n", "\n").as_bytes());
     tokio::fs::write(&path, bytes).await?;
-    let spec = match backend.kind() {
-        BackendKind::Wsl => CommandSpec::new("bash").arg(backend.to_backend_path(&path)),
-        BackendKind::Native => CommandSpec::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", &path.to_string_lossy()]),
-    };
+    let spec = CommandSpec::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", &path.to_string_lossy()]);
     let out = backend.run(&spec).await;
     let _ = tokio::fs::remove_file(&path).await;
     out
 }
 
 /// Look for ~/.ssh/id_ed25519.pub or id_rsa.pub on the backend and whether github.com is a known host.
-pub async fn key_info(backend: Arc<dyn ExecBackend>) -> Result<SshKeyInfo> {
-    let out = run_script(&backend, INFO_BASH, INFO_PS).await?;
+pub async fn key_info(backend: Arc<ExecBackend>) -> Result<SshKeyInfo> {
+    let out = run_script(&backend, INFO_PS).await?;
     Ok(parse_info(&out.stdout))
 }
 
 /// Generate ~/.ssh/id_ed25519 (no passphrase, comment "vibecoder") if missing, add github.com to known_hosts, return the public key.
-pub async fn generate_key(backend: Arc<dyn ExecBackend>) -> Result<SshKeyInfo> {
-    let out = run_script(&backend, GENERATE_BASH, GENERATE_PS).await?;
+pub async fn generate_key(backend: Arc<ExecBackend>) -> Result<SshKeyInfo> {
+    let out = run_script(&backend, GENERATE_PS).await?;
     if !out.success() {
         return Err(CoreError::msg(format!("SSH 키 생성 실패: {}", if out.stderr.trim().is_empty() { out.stdout.trim() } else { out.stderr.trim() })));
     }
@@ -89,7 +72,7 @@ pub async fn generate_key(backend: Arc<dyn ExecBackend>) -> Result<SshKeyInfo> {
 }
 
 /// `ssh -T git@github.com` → Ok(username) when the key is registered on GitHub.
-pub async fn test_github(backend: Arc<dyn ExecBackend>) -> Result<String> {
+pub async fn test_github(backend: Arc<ExecBackend>) -> Result<String> {
     let spec = CommandSpec::new("ssh").args(["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15", "-T", "git@github.com"]);
     let out = backend.run(&spec).await?;
     let text = format!("{}\n{}", out.stdout, out.stderr);

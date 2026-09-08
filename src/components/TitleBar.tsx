@@ -98,7 +98,7 @@ export function TitleBar({ showPanels = true }: { showPanels?: boolean }) {
           <PanelButton icon={<SquareTerminal className="size-3.5" />} label="터미널" hint="내장 터미널 (Ctrl+2)" pressed={terminalOpen} onClick={() => setTerminalOpen(!terminalOpen)} />
           <PanelButton icon={<FolderTree className="size-3.5" />} label="파일" hint="프로젝트 파일 탐색기 (Ctrl+3)" pressed={filesPanelOpen} onClick={() => setFilesPanelOpen(!filesPanelOpen)} />
           <PanelButton icon={<MonitorPlay className="size-3.5" />} label="UI 미리보기" hint="dev 서버 화면을 실시간으로 보며 요소를 골라 지시 (Ctrl+4)" pressed={previewOpen} onClick={() => setPreviewOpen(!previewOpen)} />
-          <PanelButton icon={<Settings className="size-3.5" />} label="설정" hint="실행 환경 · 기본값 · 계정 · MCP (Ctrl+,)" onClick={() => setSettingsOpen(true)} />
+          <PanelButton icon={<Settings className="size-3.5" />} label="설정" hint="기본값 · 도구 · 계정 · MCP (Ctrl+,)" onClick={() => setSettingsOpen(true)} />
         </div>
       ) : (
         <div data-tauri-drag-region className="w-3" />

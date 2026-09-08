@@ -2,7 +2,6 @@
 import type { ProjectType } from "./ProjectType";
 import type { TargetOs } from "./TargetOs";
 import type { ToolStatus } from "./ToolStatus";
-import type { WindowsToolStatus } from "./WindowsToolStatus";
 
 export type ProjectPlan = { name: string, dir_name: string, target_os: TargetOs, project_type: ProjectType, 
 /**
@@ -20,8 +19,4 @@ reason: string,
 /**
  * Backend-side prerequisites of the chosen stack that are not installed.
  */
-missing_tools: Array<ToolStatus>, 
-/**
- * Windows toolchain entries the stack needs when built from WSL (empty when not applicable).
- */
-windows_toolchain: Array<WindowsToolStatus>, };
+missing_tools: Array<ToolStatus>, };

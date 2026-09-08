@@ -4,8 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ipc, type AuthStatus, type Provider } from "@/lib/ipc";
-import { openTerminalWith } from "@/stores/terminal";
-import { loginCommand } from "@/features/terminal/commands";
+import { LoginPanel } from "./LoginPanel";
 import { PROVIDER_OPTIONS } from "@/features/settings/options";
 
 type State = { status: AuthStatus | null; error: string | null; loading: boolean };
@@ -39,13 +38,13 @@ export function useAuthStatuses() {
 }
 
 interface Props {
-  onLogin?: () => void;
   autoLoad?: boolean;
 }
 
-/** Login status cards for Claude and Codex with login/refresh actions. */
-export function AuthCards({ onLogin, autoLoad = true }: Props) {
+/** Login status cards for Claude and Codex; "로그인" runs the GUI login flow inline (no terminal). */
+export function AuthCards({ autoLoad = true }: Props) {
   const { state, refresh } = useAuthStatuses();
+  const [active, setActive] = useState<Provider | null>(null);
   useEffect(() => {
     if (autoLoad) refresh().catch(() => {});
   }, [autoLoad, refresh]);
@@ -89,21 +88,25 @@ export function AuthCards({ onLogin, autoLoad = true }: Props) {
                 </p>
               )}
               {s.status?.detail && !s.error && <p className="text-xs text-muted-foreground">{s.status.detail}</p>}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={loggedIn ? "outline" : "default"}
-                  onClick={() => {
-                    openTerminalWith(loginCommand(p.value), null);
-                    onLogin?.();
+              {active === p.value ? (
+                <LoginPanel
+                  provider={p.value}
+                  onFinished={(ok) => {
+                    refresh(p.value).catch(() => {});
+                    if (ok) setTimeout(() => setActive((a) => (a === p.value ? null : a)), 1500);
                   }}
-                >
-                  <LogIn className="size-3.5" /> {loggedIn ? "다시 로그인" : "로그인"}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => refresh(p.value)} disabled={s.loading}>
-                  <RefreshCw className="size-3.5" /> 다시 확인
-                </Button>
-              </div>
+                  onClose={() => setActive(null)}
+                />
+              ) : (
+                <div className="flex gap-2">
+                  <Button size="sm" variant={loggedIn ? "outline" : "default"} onClick={() => setActive(p.value)} disabled={active !== null}>
+                    <LogIn className="size-3.5" /> {loggedIn ? "다시 로그인" : "로그인"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => refresh(p.value)} disabled={s.loading}>
+                    <RefreshCw className="size-3.5" /> 다시 확인
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         );

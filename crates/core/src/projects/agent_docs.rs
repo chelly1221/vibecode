@@ -1,14 +1,8 @@
-//! Generates CLAUDE.md and AGENTS.md from the project's choices.
-//! AGENTS.md holds the content; CLAUDE.md is a short header that imports it
-//! (`@AGENTS.md`) so both agents read one source of truth.
+//! Generates the agent instruction document written to both CLAUDE.md and AGENTS.md.
+//! The two files are always identical copies (see `docs_sync`), so Claude Code and Codex
+//! read the same text.
 
-use crate::toolchain;
-use crate::types::{ProjectRecord, ProjectType, StackInfo, TargetOs, WindowsToolStatus};
-
-pub struct AgentDocs {
-    pub claude_md: String,
-    pub agents_md: String,
-}
+use crate::types::{ProjectRecord, ProjectType, StackInfo, TargetOs};
 
 pub fn target_label(t: TargetOs) -> &'static str {
     match t {
@@ -36,9 +30,7 @@ pub fn type_label(t: ProjectType) -> &'static str {
     }
 }
 
-/// `windows_toolchain`: Some(statuses) when the project is developed from WSL but built with the Windows
-/// toolchain (see `toolchain::applies`); the build commands are then rewritten to the `.exe`/`.cmd` shims.
-pub fn generate(project: &ProjectRecord, stack: Option<&StackInfo>, description: &str, windows_toolchain: Option<&[WindowsToolStatus]>) -> AgentDocs {
+pub fn generate(project: &ProjectRecord, stack: Option<&StackInfo>, description: &str) -> String {
     let mut a = String::new();
     a.push_str(&format!("# {}\n\n", project.name));
     let desc = description.trim();
@@ -71,21 +63,12 @@ pub fn generate(project: &ProjectRecord, stack: Option<&StackInfo>, description:
     a.push_str("## 빌드 · 실행 · 테스트\n");
     match stack.and_then(|s| s.agent_notes.as_deref()).map(str::trim).filter(|n| !n.is_empty()) {
         Some(notes) => {
-            if windows_toolchain.is_some() {
-                a.push_str(&toolchain::rewrite_notes(notes));
-            } else {
-                a.push_str(notes);
-            }
+            a.push_str(notes);
             a.push('\n');
         }
         None => a.push_str("- (스택별 명령을 여기에 정리하세요.)\n"),
     }
     a.push('\n');
-
-    if let Some(statuses) = windows_toolchain {
-        a.push_str(&toolchain::agent_docs_section(statuses));
-        a.push('\n');
-    }
 
     a.push_str("## 작업 규칙\n");
     a.push_str("- 변경은 작게 나누어 커밋하고, 커밋 메시지는 Conventional Commits(`feat:`, `fix:`, `refactor:` ...)를 따른다.\n");
@@ -94,13 +77,9 @@ pub fn generate(project: &ProjectRecord, stack: Option<&StackInfo>, description:
     a.push_str("- 기존 코드 스타일과 디렉터리 구조를 따른다. 대규모 구조 변경은 먼저 계획을 설명한다.\n");
     a.push_str("- 비밀값(.env, 토큰, 키)은 저장소에 커밋하지 않는다.\n");
     a.push_str("- 사용자에게 보이는 문구는 한국어, 코드 식별자와 주석은 영어로 쓴다.\n");
+    a.push_str("- CLAUDE.md와 AGENTS.md는 같은 내용을 담는다(앱이 자동으로 동기화). 지침을 고칠 때는 둘 중 하나만 고치면 된다.\n");
 
-    let claude = format!(
-        "# {name}\n\n프로젝트 지침은 AGENTS.md 한 곳에서 관리한다 (Claude Code와 Codex가 같은 파일을 읽는다).\n\n@AGENTS.md\n",
-        name = project.name
-    );
-
-    AgentDocs { claude_md: claude, agents_md: a }
+    a
 }
 
 #[cfg(test)]
@@ -127,40 +106,22 @@ mod tests {
     }
 
     #[test]
-    fn generates_both_docs() {
+    fn generates_the_shared_doc() {
         let stack = crate::projects::catalog::get("tauri-react").unwrap().unwrap();
-        let docs = generate(&project(), Some(&stack), "메모 앱", None);
-        assert!(docs.claude_md.starts_with("# demo"));
-        assert!(docs.claude_md.contains("@AGENTS.md"));
-        assert!(docs.agents_md.contains("메모 앱"));
-        assert!(docs.agents_md.contains("Tauri 2 + Rust + React/TS"));
-        assert!(docs.agents_md.contains("npm run tauri dev"));
-        assert!(docs.agents_md.contains("Windows"));
-        assert!(docs.agents_md.contains("테스트"));
-    }
-
-    #[test]
-    fn windows_toolchain_section_rewrites_commands() {
-        let stack = crate::projects::catalog::get("tauri-react").unwrap().unwrap();
-        let st = WindowsToolStatus {
-            name: "rust".into(),
-            label: "Rust".into(),
-            found: true,
-            path: Some("C:\\Users\\me\\.cargo\\bin\\cargo.exe".into()),
-            version: None,
-            winget_id: "Rustlang.Rustup".into(),
-            shims: vec!["cargo.exe".into()],
-        };
-        let docs = generate(&project(), Some(&stack), "메모 앱", Some(&[st]));
-        assert!(docs.agents_md.contains("`npm.cmd run tauri dev`"));
-        assert!(docs.agents_md.contains("## Windows 툴체인"));
-        assert!(!docs.agents_md.contains("`npm run tauri dev`"));
+        let doc = generate(&project(), Some(&stack), "메모 앱");
+        assert!(doc.starts_with("# demo"));
+        assert!(doc.contains("메모 앱"));
+        assert!(doc.contains("Tauri 2 + Rust + React/TS"));
+        assert!(doc.contains("npm run tauri dev"));
+        assert!(doc.contains("Windows"));
+        assert!(doc.contains("테스트"));
+        assert!(doc.contains("자동으로 동기화"));
     }
 
     #[test]
     fn works_without_stack_or_description() {
-        let docs = generate(&project(), None, "   ", None);
-        assert!(docs.agents_md.contains("설명 없음"));
-        assert!(docs.agents_md.contains("지정되지 않음"));
+        let doc = generate(&project(), None, "   ");
+        assert!(doc.contains("설명 없음"));
+        assert!(doc.contains("지정되지 않음"));
     }
 }

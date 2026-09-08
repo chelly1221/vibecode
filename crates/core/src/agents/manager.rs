@@ -44,6 +44,9 @@ impl SessionManager {
     /// also written to the messages table before being forwarded.
     pub async fn start(&self, ctx: Arc<AppContext>, config: SessionConfig) -> Result<(SessionRecord, UnboundedReceiver<SessionEvent>)> {
         let project = ctx.db.get_project(&config.project_id)?;
+        // Both agents must see the same instructions.
+        crate::projects::docs_sync::reconcile_quietly(std::path::Path::new(&project.path));
+        ctx.docs_sync.watch(std::path::Path::new(&project.path));
         let backend = ctx.backend().await;
         let bin = ctx.bin_override(config.provider).await;
 
@@ -274,6 +277,10 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
                 }
                 dirty = true;
                 log(db, &sid, MessageKind::System, json!({ "subtype": "turn_end", "cost_usd": cost_usd, "usage": usage, "duration_ms": duration_ms, "stop_reason": stop_reason }));
+                // The agent may have edited CLAUDE.md or AGENTS.md during the turn: mirror it now.
+                if let Ok(p) = db.get_project(&record.project_id) {
+                    crate::projects::docs_sync::reconcile_quietly(std::path::Path::new(&p.path));
+                }
             }
             SessionEvent::Error { message, .. } => log(db, &sid, MessageKind::System, json!({ "subtype": "error", "message": message })),
             _ => {}

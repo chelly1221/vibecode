@@ -11,7 +11,7 @@ use crate::types::{AuthStatus, Effort, ModelInfo, Provider};
 const ALL_EFFORTS: [Effort; 5] = [Effort::Low, Effort::Medium, Effort::High, Effort::XHigh, Effort::Max];
 
 /// `claude auth status` prints JSON: {loggedIn, authMethod, apiProvider, email, subscriptionType, ...}.
-pub async fn auth_status(backend: Arc<dyn ExecBackend>, bin: Option<&str>) -> Result<AuthStatus> {
+pub async fn auth_status(backend: Arc<ExecBackend>, bin: Option<&str>) -> Result<AuthStatus> {
     let bin = bin.filter(|b| !b.trim().is_empty()).unwrap_or("claude");
     let spec = CommandSpec::new(bin).args(["auth", "status"]);
     let out = match tokio::time::timeout(std::time::Duration::from_secs(30), backend.run(&spec)).await {

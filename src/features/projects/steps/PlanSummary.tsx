@@ -38,7 +38,7 @@ export function PlanSummary() {
   }, [plan?.stack_id]);
 
   const fullPath = useMemo(() => (plan ? joinPath(form.parentDir, plan.dir_name) : ""), [plan, form.parentDir]);
-  const installs = useMemo(() => (plan ? plannedInstalls(plan.windows_toolchain, plan.missing_tools) : { auto: [], manual: [], hasWindows: false }), [plan]);
+  const installs = useMemo(() => (plan ? plannedInstalls(plan.missing_tools) : { auto: [], manual: [] }), [plan]);
   if (!plan) return null;
 
   return (
@@ -96,8 +96,7 @@ export function PlanSummary() {
                   만들 때 자동으로 설치합니다: <span className="font-medium">{installs.auto.join(", ")}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {installs.hasWindows ? "Windows 설치 프로그램이 관리자 권한을 요청하면 허용하세요. " : ""}
-                  다운로드 용량에 따라 몇 분 걸릴 수 있고, 진행 상황은 프로그레스 바로 표시됩니다.
+                  설치 프로그램이 관리자 권한을 요청하면 허용하세요. 다운로드 용량에 따라 몇 분 걸릴 수 있고, 진행 상황은 프로그레스 바로 표시됩니다.
                 </p>
               </div>
             </div>

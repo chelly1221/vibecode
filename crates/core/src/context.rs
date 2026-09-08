@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 
 use crate::agents::codex::CodexHost;
 use crate::agents::SessionManager;
-use crate::backend::{create_backend, ExecBackend};
+use crate::backend::ExecBackend;
 use crate::db::Db;
 use crate::error::Result;
 use crate::permission::PermissionBroker;
@@ -19,12 +19,14 @@ pub struct AppContext {
     pub data_dir: PathBuf,
     pub db: Db,
     settings: RwLock<AppSettings>,
-    backend: RwLock<Arc<dyn ExecBackend>>,
+    backend: Arc<ExecBackend>,
     pub sessions: SessionManager,
     pub permission: RwLock<Option<Arc<PermissionBroker>>>,
     pub codex: CodexHost,
-    pub pty: PtyManager,
+    pub pty: Arc<PtyManager>,
     pub preview: Arc<DevServerManager>,
+    /// Keeps CLAUDE.md / AGENTS.md identical in every registered project.
+    pub docs_sync: crate::projects::docs_sync::DocsWatcher,
 }
 
 impl AppContext {
@@ -32,23 +34,26 @@ impl AppContext {
         std::fs::create_dir_all(&data_dir)?;
         let db = Db::open(&data_dir.join("vibecode.db"))?;
         let settings = db.get_settings().unwrap_or_default();
-        let backend = match create_backend(&settings.backend).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!("backend init failed ({e}); falling back to native");
-                Arc::new(crate::backend::native::NativeBackend::new())
+        let backend = Arc::new(ExecBackend::new());
+        let docs_sync = crate::projects::docs_sync::DocsWatcher::new();
+        for p in db.list_projects().unwrap_or_default() {
+            let dir = PathBuf::from(&p.path);
+            if dir.is_dir() {
+                crate::projects::docs_sync::reconcile_quietly(&dir);
+                docs_sync.watch(&dir);
             }
-        };
+        }
         Ok(Arc::new(AppContext {
             data_dir,
             db,
             settings: RwLock::new(settings),
-            backend: RwLock::new(backend),
+            backend,
             sessions: SessionManager::new(),
             permission: RwLock::new(None),
             codex: CodexHost::new(),
-            pty: PtyManager::new(),
+            pty: Arc::new(PtyManager::new()),
             preview: Arc::new(DevServerManager::new()),
+            docs_sync,
         }))
     }
 
@@ -56,21 +61,24 @@ impl AppContext {
         self.settings.read().await.clone()
     }
 
-    /// Persist settings and rebuild the backend if it changed.
+    /// Persist settings. A changed codex binary takes effect on the next app-server start.
     pub async fn update_settings(&self, new: AppSettings) -> Result<AppSettings> {
-        let backend_changed = self.settings.read().await.backend != new.backend;
+        let codex_changed = self.settings.read().await.codex_bin != new.codex_bin;
         self.db.set_settings(&new)?;
-        if backend_changed {
-            let b = create_backend(&new.backend).await?;
-            *self.backend.write().await = b;
+        if codex_changed {
             self.codex.shutdown().await;
         }
         *self.settings.write().await = new.clone();
         Ok(new)
     }
 
-    pub async fn backend(&self) -> Arc<dyn ExecBackend> {
-        self.backend.read().await.clone()
+    pub async fn backend(&self) -> Arc<ExecBackend> {
+        self.backend.clone()
+    }
+
+    /// Shared PTY manager (login flows keep a handle to write back into their PTY).
+    pub fn pty_handle(&self) -> Arc<PtyManager> {
+        self.pty.clone()
     }
 
     /// Lazily start the permission MCP server.

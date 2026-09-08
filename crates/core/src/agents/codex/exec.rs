@@ -19,15 +19,15 @@ use crate::backend::{process, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
 
 /// Run `codex exec --json` in `repo` with `prompt` on stdin and return the final agent message.
-pub async fn run_exec(backend: Arc<dyn ExecBackend>, bin: Option<String>, repo: &Path, prompt: &str, model: Option<&str>) -> Result<String> {
+pub async fn run_exec(backend: Arc<ExecBackend>, bin: Option<String>, repo: &Path, prompt: &str, model: Option<&str>) -> Result<String> {
     let mut spec = CommandSpec::new(bin.unwrap_or_else(|| "codex".into()))
         .args(["exec", "--json", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--color", "never"])
         .arg("-C")
-        .arg(backend.to_backend_path(repo));
+        .arg(repo.to_string_lossy().into_owned());
     if let Some(m) = model {
         spec = spec.arg("-m").arg(m);
     }
-    // `-` = read the prompt from stdin (avoids command-line length limits through wsl.exe).
+    // `-` = read the prompt from stdin (avoids command-line length limits).
     spec = spec.arg("-");
     let mut cmd = backend.command(&spec);
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());

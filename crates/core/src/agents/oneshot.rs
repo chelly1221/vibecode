@@ -11,7 +11,7 @@ use crate::types::Provider;
 pub const COMMIT_PROMPT: &str = "Write a concise git commit message (Conventional Commits style: type(scope): summary, then an optional short body) for the following diff. Output only the commit message, no code fences, no commentary.";
 
 /// Returns a commit message for `diff`. Runs in `repo` so project instructions apply.
-pub async fn commit_message(backend: Arc<dyn ExecBackend>, provider: Provider, bin: Option<String>, repo: &Path, diff: &str) -> Result<String> {
+pub async fn commit_message(backend: Arc<ExecBackend>, provider: Provider, bin: Option<String>, repo: &Path, diff: &str) -> Result<String> {
     match provider {
         Provider::Claude => super::claude::oneshot_commit_message(backend, bin, repo, diff).await,
         Provider::Codex => super::codex::oneshot_commit_message(backend, bin, repo, diff).await,

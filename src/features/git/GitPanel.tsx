@@ -6,7 +6,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Provider } from "@/lib/ipc";
+import { ipc, type Provider } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { useGitStore } from "@/stores/git";
 import { BranchMenu } from "./BranchMenu";
@@ -90,12 +90,26 @@ export function GitPanel() {
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground">
         <GitBranch className="size-6" />
         <p>이 폴더는 git 저장소가 아닙니다.</p>
-        <p>
-          터미널에서 <code className="rounded bg-muted px-1 font-mono">git init</code>을 실행하거나 에이전트에게 요청하세요.
-        </p>
-        <Button size="sm" variant="outline" onClick={() => void refresh()}>
-          <RotateCw /> 다시 확인
-        </Button>
+        <p>저장소를 만들면 변경 내역 추적, 체크포인트, GitHub 푸시를 쓸 수 있습니다.</p>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() =>
+              ipc.git
+                .init(activeProjectId!)
+                .then(() => {
+                  toast.success("git 저장소를 만들었습니다 (main)");
+                  return refresh();
+                })
+                .catch((e) => toast.error("git init 실패", { description: String(e) }))
+            }
+          >
+            <GitBranch /> git 저장소 만들기
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void refresh()}>
+            <RotateCw /> 다시 확인
+          </Button>
+        </div>
       </div>
     );
   }

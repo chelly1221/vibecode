@@ -10,7 +10,6 @@ pub mod projects;
 pub mod pty;
 pub mod sessions;
 pub mod settings;
-pub mod toolchain;
 pub mod tools;
 
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
@@ -19,14 +18,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         settings::settings_set,
         tools::tools_detect,
         tools::tools_auth_status,
-        tools::tools_list_wsl_distros,
         tools::models_list,
-        env::env_wsl_status,
-        env::env_install_wsl,
-        env::env_reboot,
-        env::env_reboot_to_firmware,
-        env::env_provision,
-        env::env_remove_managed,
+        tools::tools_install,
+        tools::tools_login_start,
+        tools::tools_login_code,
+        tools::tools_login_cancel,
         env::env_ssh_key_info,
         env::env_ssh_generate_key,
         env::env_ssh_test_github,
@@ -40,10 +36,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         projects::stacks_ai_recommend,
         projects::projects_agent_docs_status,
         projects::projects_generate_agent_docs,
+        projects::projects_sync_agent_docs,
         projects::projects_ai_plan,
-        toolchain::toolchain_status,
-        toolchain::toolchain_install_script,
-        toolchain::toolchain_write_shims,
         sessions::session_start,
         sessions::session_send,
         sessions::session_interrupt,
@@ -74,6 +68,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         preview::preview_server_stop,
         preview::preview_server_status,
         git::git_status,
+        git::git_init,
         git::git_diff,
         git::git_stage,
         git::git_unstage,

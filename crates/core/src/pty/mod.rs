@@ -1,6 +1,5 @@
 //! Interactive terminal sessions (portable-pty / ConPTY) for login flows and a
-//! general-purpose terminal. Runs through the backend: natively PowerShell (or the
-//! requested program), in WSL `wsl.exe -d <distro> --cd <cwd> -- bash -l[c ...]`.
+//! general-purpose terminal: PowerShell by default, or the requested program.
 //!
 //! Threads per pty: a reader (pty output -> callback) and a waiter (child exit ->
 //! drop the master so the reader sees EOF -> `PtyEvent::Exit`).
@@ -14,9 +13,8 @@ use std::time::Duration;
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
-use crate::backend::{sh_quote, ExecBackend};
 use crate::error::{CoreError, Result};
-use crate::types::{BackendKind, PtyEvent, PtySpec};
+use crate::types::{PtyEvent, PtySpec};
 
 pub use utf8::Utf8Decoder;
 
@@ -44,66 +42,41 @@ impl PtyManager {
         self.handles.lock().map_err(|_| CoreError::msg("pty mutex poisoned"))
     }
 
-    /// Build the command for `spec` on `backend`.
-    pub fn build_command(backend: &dyn ExecBackend, spec: &PtySpec) -> CommandBuilder {
-        // `host` forces the Windows side (winget installs, PowerShell) even when agents run in WSL.
-        let kind = if spec.host { BackendKind::Native } else { backend.kind() };
-        let mut cmd = match kind {
-            BackendKind::Wsl => {
-                let mut c = CommandBuilder::new("wsl.exe");
-                if let Some(distro) = backend.wsl_distro() {
-                    c.arg("-d");
-                    c.arg(distro);
+    /// Build the command for `spec`. `.cmd`/`.bat` shims (npm-installed CLIs such as codex) cannot be
+    /// spawned directly by CreateProcess, so they run through `cmd.exe /d /c`.
+    pub fn build_command(spec: &PtySpec) -> CommandBuilder {
+        let mut cmd = match &spec.program {
+            Some(program) if !program.trim().is_empty() => {
+                let resolved = which::which(program).ok();
+                let is_shim = resolved.as_ref().map(|p| matches!(p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("cmd") | Some("bat"))).unwrap_or(false);
+                if let (true, Some(p)) = (is_shim && cfg!(windows), resolved.as_ref()) {
+                    let mut c = CommandBuilder::new("cmd.exe");
+                    c.arg("/d");
+                    c.arg("/c");
+                    c.arg(p);
+                    c.args(&spec.args);
+                    c
+                } else {
+                    let mut c = CommandBuilder::new(program);
+                    c.args(&spec.args);
+                    c
                 }
-                c.arg("--cd");
-                match &spec.cwd {
-                    Some(cwd) if !cwd.trim().is_empty() => c.arg(backend.to_backend_path(std::path::Path::new(cwd))),
-                    _ => c.arg("~"),
-                }
-                c.arg("--");
-                c.arg("bash");
-                match &spec.program {
-                    Some(program) if !program.trim().is_empty() => {
-                        // Login shell so ~/.local/bin (claude) etc. are on PATH.
-                        let mut script = sh_quote(program);
-                        for a in &spec.args {
-                            script.push(' ');
-                            script.push_str(&sh_quote(a));
-                        }
-                        c.arg("-lc");
-                        c.arg(script);
-                    }
-                    _ => {
-                        c.arg("-l");
-                    }
-                }
-                c
             }
-            BackendKind::Native => {
-                let mut c = match &spec.program {
-                    Some(program) if !program.trim().is_empty() => {
-                        let mut c = CommandBuilder::new(program);
-                        c.args(&spec.args);
-                        c
-                    }
-                    _ => default_shell(),
-                };
-                if let Some(cwd) = &spec.cwd {
-                    if !cwd.trim().is_empty() && std::path::Path::new(cwd).is_dir() {
-                        c.cwd(cwd);
-                    }
-                }
-                c
-            }
+            _ => default_shell(),
         };
+        if let Some(cwd) = &spec.cwd {
+            if !cwd.trim().is_empty() && std::path::Path::new(cwd).is_dir() {
+                cmd.cwd(cwd);
+            }
+        }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd
     }
 
     /// Open a pty; returns its id. `on_event` is called from a reader thread.
-    pub fn open(&self, backend: Arc<dyn ExecBackend>, spec: PtySpec, on_event: PtyCallback) -> Result<String> {
-        let cmd = Self::build_command(backend.as_ref(), &spec);
+    pub fn open(&self, spec: PtySpec, on_event: PtyCallback) -> Result<String> {
+        let cmd = Self::build_command(&spec);
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize { rows: spec.rows.max(2), cols: spec.cols.max(2), pixel_width: 0, pixel_height: 0 })
@@ -204,7 +177,7 @@ impl PtyManager {
     }
 }
 
-/// Interactive shell for the native backend.
+/// Interactive shell.
 fn default_shell() -> CommandBuilder {
     if cfg!(windows) {
         if which::which("powershell.exe").is_ok() {
@@ -225,37 +198,10 @@ fn default_shell() -> CommandBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::native::NativeBackend;
-    use crate::backend::wsl::WslBackend;
-
-    #[test]
-    fn wsl_command_shape() {
-        let b = WslBackend::new("Ubuntu".into());
-        let spec = PtySpec { program: Some("claude".into()), args: vec!["auth".into(), "status".into()], cwd: Some("C:\\code\\x".into()), cols: 80, rows: 24, host: false };
-        let cmd = PtyManager::build_command(&b, &spec);
-        let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
-        assert_eq!(argv, vec!["wsl.exe", "-d", "Ubuntu", "--cd", "/mnt/c/code/x", "--", "bash", "-lc", "claude auth status"]);
-
-        let spec = PtySpec { program: None, args: vec![], cwd: None, cols: 80, rows: 24, host: false };
-        let cmd = PtyManager::build_command(&b, &spec);
-        let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
-        assert_eq!(argv, vec!["wsl.exe", "-d", "Ubuntu", "--cd", "~", "--", "bash", "-l"]);
-    }
-
-    #[test]
-    fn host_flag_bypasses_wsl() {
-        let b = WslBackend::new("Ubuntu".into());
-        let spec = PtySpec { program: Some("powershell.exe".into()), args: vec!["-NoExit".into(), "-Command".into(), "winget --version".into()], cwd: None, cols: 80, rows: 24, host: true };
-        let cmd = PtyManager::build_command(&b, &spec);
-        let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
-        assert_eq!(argv, vec!["powershell.exe", "-NoExit", "-Command", "winget --version"]);
-    }
-
     #[test]
     fn native_program_shape() {
-        let b = NativeBackend::new();
-        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24, host: false };
-        let cmd = PtyManager::build_command(&b, &spec);
+        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24 };
+        let cmd = PtyManager::build_command(&spec);
         let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
         assert_eq!(argv, vec!["cmd.exe", "/c", "echo hi"]);
         assert_eq!(cmd.get_env("TERM").map(|v| v.to_string_lossy().into_owned()), Some("xterm-256color".into()));
@@ -267,9 +213,9 @@ mod tests {
         use std::sync::mpsc;
         let mgr = PtyManager::new();
         let (tx, rx) = mpsc::channel::<PtyEvent>();
-        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24, host: false };
+        let spec = PtySpec { program: Some("cmd.exe".into()), args: vec!["/c".into(), "echo hi".into()], cwd: None, cols: 80, rows: 24 };
         let id = mgr
-            .open(Arc::new(NativeBackend::new()), spec, Box::new(move |ev| {
+            .open(spec, Box::new(move |ev| {
                 let _ = tx.send(ev);
             }))
             .expect("open pty");

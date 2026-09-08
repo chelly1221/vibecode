@@ -12,7 +12,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 use tokio::sync::mpsc;
 use vibecode_core::agents::codex::{host_key, CodexHost};
 use vibecode_core::agents::StartArgs;
-use vibecode_core::backend::native::NativeBackend;
 use vibecode_core::backend::ExecBackend;
 use vibecode_core::types::{Effort, PermissionDecision, PermissionKind, PermissionPreset, PermissionReply, Provider, SessionConfig, SessionConfigPatch, SessionEvent};
 
@@ -148,12 +147,12 @@ fn config(permission: PermissionPreset) -> SessionConfig {
     }
 }
 
-async fn connected_host(recorded: Recorded) -> (CodexHost, Arc<dyn ExecBackend>) {
+async fn connected_host(recorded: Recorded) -> (CodexHost, Arc<ExecBackend>) {
     let (client, server) = tokio::io::duplex(1 << 16);
     tokio::spawn(fake_server(server, recorded));
     let (cr, cw) = tokio::io::split(client);
     let host = CodexHost::new();
-    let backend: Arc<dyn ExecBackend> = Arc::new(NativeBackend::new());
+    let backend: Arc<ExecBackend> = Arc::new(ExecBackend::new());
     host.connect(cr, cw, host_key(backend.as_ref(), None)).await.expect("handshake");
     (host, backend)
 }

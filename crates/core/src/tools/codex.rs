@@ -9,7 +9,7 @@ use crate::backend::{CommandSpec, ExecBackend};
 use crate::error::Result;
 use crate::types::{AuthStatus, Provider};
 
-pub async fn auth_status(backend: Arc<dyn ExecBackend>, bin: Option<&str>) -> Result<AuthStatus> {
+pub async fn auth_status(backend: Arc<ExecBackend>, bin: Option<&str>) -> Result<AuthStatus> {
     let spec = CommandSpec::new(bin.unwrap_or("codex")).args(["login", "status"]);
     let out = match backend.run(&spec).await {
         Ok(o) => o,

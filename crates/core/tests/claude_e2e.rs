@@ -1,6 +1,7 @@
-//! End-to-end test against the real Claude Code CLI running inside WSL.
-//! Run from WSL with: VIBECODE_E2E=1 WSLENV=VIBECODE_E2E cargo.exe test -p vibecode-core --test claude_wsl -- --ignored --nocapture
-//! (WSLENV is required so the variable reaches the Windows test process.)
+//! End-to-end test against the real Claude Code CLI on the Windows host (must be logged in).
+//! Run from WSL with: VIBECODE_E2E=1 WSLENV=VIBECODE_E2E cargo.exe test -p vibecode-core --test claude_e2e -- --ignored --nocapture
+//! (WSLENV is required so the variable reaches the Windows test process.) `VIBECODE_CLAUDE_BIN`
+//! points at claude.exe when it is not on the test process's PATH.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,7 +10,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use vibecode_core::agents::claude::ClaudeSession;
 use vibecode_core::agents::StartArgs;
-use vibecode_core::backend::wsl::WslBackend;
 use vibecode_core::backend::ExecBackend;
 use vibecode_core::permission::PermissionBroker;
 use vibecode_core::types::{Effort, PermissionDecision, PermissionPreset, PermissionReply, Provider, SessionConfig, SessionEvent};
@@ -18,19 +18,23 @@ fn e2e_enabled() -> bool {
     std::env::var("VIBECODE_E2E").map(|v| v == "1").unwrap_or(false)
 }
 
-async fn wsl_backend_with_claude() -> Option<Arc<dyn ExecBackend>> {
-    if which::which("wsl.exe").is_err() {
-        eprintln!("skip: wsl.exe not found");
-        return None;
+/// Host backend plus the claude binary to use (PATH, `VIBECODE_CLAUDE_BIN`, or the native installer's default path).
+async fn backend_with_claude() -> Option<(Arc<ExecBackend>, Option<String>)> {
+    let b: Arc<ExecBackend> = Arc::new(ExecBackend::new());
+    if let Ok(bin) = std::env::var("VIBECODE_CLAUDE_BIN") {
+        return Some((b, Some(bin)));
     }
-    let distros = vibecode_core::backend::wsl::list_distros().await;
-    let distro = distros.iter().find(|d| d == &"Ubuntu").cloned().or_else(|| distros.first().cloned())?;
-    let b: Arc<dyn ExecBackend> = Arc::new(WslBackend::new(distro));
-    if b.which("claude").await.is_none() {
-        eprintln!("skip: claude not found in WSL");
-        return None;
+    if b.which("claude").await.is_some() {
+        return Some((b, None));
     }
-    Some(b)
+    let default = std::env::var_os("USERPROFILE").map(PathBuf::from).map(|h| h.join(".local").join("bin").join("claude.exe"));
+    match default {
+        Some(p) if p.is_file() => Some((b, Some(p.to_string_lossy().into_owned()))),
+        _ => {
+            eprintln!("skip: claude not found on Windows");
+            None
+        }
+    }
 }
 
 async fn next_event(rx: &mut mpsc::UnboundedReceiver<SessionEvent>, secs: u64) -> SessionEvent {
@@ -64,12 +68,12 @@ fn summarize(ev: &SessionEvent) -> String {
 
 #[tokio::test]
 #[ignore]
-async fn claude_session_roundtrip_via_wsl() {
+async fn claude_session_roundtrip_natively() {
     if !e2e_enabled() {
         eprintln!("skip: set VIBECODE_E2E=1");
         return;
     }
-    let Some(backend) = wsl_backend_with_claude().await else { return };
+    let Some((backend, bin)) = backend_with_claude().await else { return };
     let dir = std::env::temp_dir().join(format!("vibecode-e2e-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("README.md"), "# e2e\n").unwrap();
@@ -87,7 +91,7 @@ async fn claude_session_roundtrip_via_wsl() {
         fork: false,
     };
     let session = ClaudeSession::start(
-        StartArgs { session_id: "e2e-session".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: None, events: tx , mcp_servers: vec![]},
+        StartArgs { session_id: "e2e-session".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: bin.clone(), events: tx , mcp_servers: vec![]},
         broker.clone(),
     )
     .await
@@ -158,19 +162,19 @@ async fn claude_session_roundtrip_via_wsl() {
 
 #[tokio::test]
 #[ignore]
-async fn claude_auth_status_and_commit_message_via_wsl() {
+async fn claude_auth_status_and_commit_message_natively() {
     if !e2e_enabled() {
         return;
     }
-    let Some(backend) = wsl_backend_with_claude().await else { return };
-    let status = vibecode_core::tools::claude::auth_status(backend.clone(), None).await.unwrap();
+    let Some((backend, bin)) = backend_with_claude().await else { return };
+    let status = vibecode_core::tools::claude::auth_status(backend.clone(), bin.as_deref()).await.unwrap();
     eprintln!("auth: {status:?}");
     assert!(status.logged_in, "expected a logged-in claude in WSL");
 
     let dir = std::env::temp_dir().join(format!("vibecode-e2e-cm-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&dir).unwrap();
     let diff = "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n fn main() {\n-    println!(\"hello\");\n+    println!(\"hello, world\");\n+    println!(\"added greeting\");\n }\n";
-    let msg = vibecode_core::agents::claude::oneshot_commit_message(backend, None, &dir, diff).await.unwrap();
+    let msg = vibecode_core::agents::claude::oneshot_commit_message(backend, bin.clone(), &dir, diff).await.unwrap();
     eprintln!("commit message: {msg}");
     assert!(!msg.trim().is_empty());
     assert!(!msg.contains("```"));
@@ -181,12 +185,12 @@ async fn claude_auth_status_and_commit_message_via_wsl() {
 /// VIBECODE_E2E=1 WSLENV=VIBECODE_E2E cargo.exe test -p vibecode-core --test claude_wsl claude_question -- --ignored --nocapture
 #[tokio::test]
 #[ignore]
-async fn claude_question_and_subagent_via_wsl() {
+async fn claude_question_and_subagent_natively() {
     if !e2e_enabled() {
         eprintln!("VIBECODE_E2E != 1; skipping");
         return;
     }
-    let Some(backend) = wsl_backend_with_claude().await else { return };
+    let Some((backend, bin)) = backend_with_claude().await else { return };
     let dir = std::env::temp_dir().join(format!("vibecode-e2e-q-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("README.md"), "# e2e-readme-first-line\nsecond line\n").unwrap();
@@ -194,7 +198,7 @@ async fn claude_question_and_subagent_via_wsl() {
     let broker = PermissionBroker::without_server();
     let config = SessionConfig { project_id: "e2e".into(), provider: Provider::Claude, model: Some("sonnet".into()), effort: Some(Effort::Low), permission: PermissionPreset::AutoEdit, append_system_prompt: None, resume_ref: None, fork: false };
     let session = ClaudeSession::start(
-        StartArgs { session_id: "e2e-q".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: None, events: tx, mcp_servers: vec![] },
+        StartArgs { session_id: "e2e-q".into(), config, cwd: PathBuf::from(&dir), backend: backend.clone(), bin: bin.clone(), events: tx, mcp_servers: vec![] },
         broker,
     )
     .await

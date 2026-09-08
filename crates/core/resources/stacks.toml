@@ -2,15 +2,12 @@
 # targets: windows | macos | linux | cross_desktop | web | android | ios | server
 # types:   desktop_app | web_app | mobile_app | cli | api_server | library | game | script
 # scaffold_cmd runs in the parent directory; {name} is replaced by the project name.
-# windows_toolchain: Windows-side tools (rust, msvc, node, dotnet, go) needed when the agent works in WSL but the
 #   output must be a Windows program (see core::toolchain). Applied for windows / cross_desktop targets only.
-# It must be non-interactive and must work both in PowerShell 5.1 (native) and bash (WSL):
 # no shell operators (&&, |, redirects), single command only.
 
 # ---------------------------------------------------------------- desktop
 [[stack]]
 id = "tauri-react"
-windows_toolchain = ["node", "rust", "msvc"]
 dev_command = "npm run dev"
 name = "Tauri 2 + Rust + React/TS"
 summary = "Rust 백엔드와 WebView 프론트로 가볍고 빠른 데스크톱 앱. 이 도구(vibecode)와 같은 스택."
@@ -18,7 +15,7 @@ targets = ["windows", "macos", "linux", "cross_desktop"]
 types = ["desktop_app"]
 languages = ["Rust", "TypeScript"]
 scaffold_cmd = "npm create tauri-app@latest {name} -- --template react-ts --manager npm --yes"
-prerequisites = ["node", "npm", "cargo", "rustup"]
+prerequisites = ["node", "npm", "cargo", "rustup", "msvc"]
 pros = ["설치 파일이 작고(수 MB) 메모리 사용이 적음", "Rust로 시스템 접근·성능 확보", "웹 생태계(React, Tailwind) 그대로 활용"]
 cons = ["Rust 학습 곡선", "WebView 버전 차이로 렌더링이 OS마다 다를 수 있음", "빌드 시간이 긴 편"]
 recommended = true
@@ -33,7 +30,6 @@ agent_notes = """
 
 [[stack]]
 id = "dotnet-wpf"
-windows_toolchain = ["dotnet"]
 name = ".NET 8 WPF (C#)"
 summary = "Windows 전용 네이티브 데스크톱 앱. XAML UI, Visual Studio 친화적."
 targets = ["windows"]
@@ -54,7 +50,6 @@ agent_notes = """
 
 [[stack]]
 id = "electron-vite"
-windows_toolchain = ["node"]
 dev_command = "npm run dev"
 name = "Electron + Vite + React/TS"
 summary = "Chromium 내장 데스크톱 앱. Node API를 그대로 쓰며 웹 개발자에게 가장 익숙함."
@@ -377,14 +372,13 @@ agent_notes = """
 # ---------------------------------------------------------------- cli
 [[stack]]
 id = "rust-cli"
-windows_toolchain = ["rust", "msvc"]
 name = "Rust CLI (clap)"
 summary = "단일 바이너리로 배포되는 빠른 CLI 도구."
 targets = ["windows", "macos", "linux", "cross_desktop"]
 types = ["cli", "library"]
 languages = ["Rust"]
 scaffold_cmd = "cargo new {name}"
-prerequisites = ["cargo", "rustup"]
+prerequisites = ["cargo", "rustup", "msvc"]
 pros = ["의존성 없는 단일 실행 파일", "빠르고 메모리 안전", "cargo 도구 체인 우수"]
 cons = ["컴파일 시간", "학습 곡선"]
 recommended = true
@@ -398,7 +392,6 @@ agent_notes = """
 
 [[stack]]
 id = "go-cli"
-windows_toolchain = ["go"]
 name = "Go CLI (cobra)"
 summary = "빠른 컴파일과 간단한 배포의 CLI. 크로스 컴파일이 쉬움."
 targets = ["windows", "macos", "linux", "cross_desktop"]
@@ -510,14 +503,13 @@ agent_notes = """
 
 [[stack]]
 id = "bevy"
-windows_toolchain = ["rust", "msvc"]
 name = "Bevy (Rust)"
 summary = "ECS 기반 Rust 게임 엔진. 코드 중심 개발."
 targets = ["windows", "macos", "linux", "cross_desktop", "web"]
 types = ["game"]
 languages = ["Rust"]
 scaffold_cmd = "cargo new {name}"
-prerequisites = ["cargo", "rustup"]
+prerequisites = ["cargo", "rustup", "msvc"]
 pros = ["데이터 지향 ECS로 확장성 좋음", "Rust 안전성·성능", "에디터 없이 코드로 전부 제어"]
 cons = ["API가 자주 바뀜(버전 고정 필수)", "비주얼 에디터 부재", "컴파일 시간"]
 recommended = false

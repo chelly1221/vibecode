@@ -125,7 +125,7 @@ pub fn extract_json_object(text: &str) -> Option<Value> {
     None
 }
 
-pub async fn recommend(backend: Arc<dyn ExecBackend>, bin: Option<String>, req: StackRecommendRequest) -> Result<Vec<StackRecommendation>> {
+pub async fn recommend(backend: Arc<ExecBackend>, bin: Option<String>, req: StackRecommendRequest) -> Result<Vec<StackRecommendation>> {
     if req.description.trim().is_empty() {
         return Err(CoreError::msg("프로젝트 설명을 입력하세요"));
     }
@@ -149,7 +149,7 @@ pub async fn recommend(backend: Arc<dyn ExecBackend>, bin: Option<String>, req: 
 
 /// `claude -p --output-format json --json-schema …`; returns `structured_output` (or the result text).
 /// Shared by the stack recommendation and the one-line project plan.
-pub(crate) async fn claude_structured(backend: Arc<dyn ExecBackend>, bin: Option<String>, cwd: &std::path::Path, prompt: &str, schema: &str) -> Result<Value> {
+pub(crate) async fn claude_structured(backend: Arc<ExecBackend>, bin: Option<String>, cwd: &std::path::Path, prompt: &str, schema: &str) -> Result<Value> {
     let bin = bin.filter(|b| !b.trim().is_empty()).unwrap_or_else(|| "claude".into());
     let spec = CommandSpec::new(bin)
         .args(["-p", "--output-format", "json", "--json-schema", schema, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--disallowedTools", "*"])

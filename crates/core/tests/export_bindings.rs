@@ -10,10 +10,10 @@ fn export_bindings() {
         ($($t:ty),* $(,)?) => { $( <$t as TS>::export_all(&cfg).expect(stringify!($t)); )* };
     }
     export!(
-        Provider, Effort, PermissionPreset, BackendKind, BackendConfig, AppSettings, ToolStatus, AuthStatus, ModelInfo,
+        Provider, Effort, PermissionPreset, AppSettings, ToolStatus, AuthStatus, ModelInfo,
         TargetOs, ProjectType, StackInfo, ProjectRecord, CreateProjectRequest, ScaffoldEvent, SessionConfig,
         SessionConfigPatch, SessionRecord, MessageKind, MessageRecord, PermissionKind, PermissionDecision,
         PermissionReply, PlanStep, Usage, SessionEvent, GitFileStatus, GitStatus, GitBranch, GitCommit, GitHubUser,
-        GitHubRepo, PtySpec, PtyEvent, WslState, WslStatus, ProvisionEvent, McpTransport, EnvVar, McpServerConfig, QuestionOption, AgentQuestion, QuestionAnswer, CheckpointRecord, FsEntry, FsFile, StackRecommendRequest, StackRecommendation, SshKeyInfo, PreviewEvent, PreviewStatus, AgentDocsStatus, ProjectPlanRequest, ProjectPlan, WindowsToolStatus, InstallKind, InstallStatus,
+        GitHubRepo, PtySpec, PtyEvent, LoginEvent, ToolInstallEvent, McpTransport, EnvVar, McpServerConfig, QuestionOption, AgentQuestion, QuestionAnswer, CheckpointRecord, FsEntry, FsFile, StackRecommendRequest, StackRecommendation, SshKeyInfo, PreviewEvent, PreviewStatus, AgentDocsStatus, ProjectPlanRequest, ProjectPlan, InstallStatus,
     );
 }
