@@ -11,8 +11,6 @@ import { useAppStore } from "@/stores/app";
 import { useWizardStore } from "@/stores/wizard";
 import { EFFORT_OPTIONS, PERMISSION_OPTIONS, PROVIDER_LABEL } from "../labels";
 
-const DEFAULT_MODEL = "__default__";
-
 function SwitchRow({ id, label, description, checked, onChange, disabled }: { id: string; label: string; description?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
@@ -53,7 +51,7 @@ export function StepOptions() {
     };
   }, [provider, form.accounts]);
 
-  const selectedModel = models.find((m) => m.id === form.model);
+  const selectedModel = models.find((m) => m.id === form.model) ?? models.find((m) => m.is_default);
   const efforts = selectedModel && selectedModel.efforts.length > 0 ? EFFORT_OPTIONS.filter((e) => selectedModel.efforts.includes(e.value)) : EFFORT_OPTIONS;
 
   return (
@@ -124,17 +122,17 @@ export function StepOptions() {
           </div>
           <div className="grid gap-1.5">
             <Label>모델</Label>
-            <Select value={form.model ?? DEFAULT_MODEL} onValueChange={(v) => setField("model", v === DEFAULT_MODEL ? null : v)} disabled={modelsLoading}>
+            <Select value={form.model ?? selectedModel?.id ?? ""} onValueChange={(v) => setField("model", v)} disabled={modelsLoading}>
               <SelectTrigger className="w-full">
                 {modelsLoading ? <Loader2 className="size-4 animate-spin" /> : <SelectValue />}
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={DEFAULT_MODEL}>기본값</SelectItem>
                 {models.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
-                    {m.label}
+                    {m.label}{m.is_default && " (기본)"}
                   </SelectItem>
                 ))}
+                {form.model && !models.some((m) => m.id === form.model) && <SelectItem value={form.model}>{form.model}</SelectItem>}
               </SelectContent>
             </Select>
           </div>

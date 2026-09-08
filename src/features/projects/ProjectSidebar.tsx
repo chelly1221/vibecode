@@ -7,6 +7,7 @@ import {
   FolderOpen,
   House,
   MoreHorizontal,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -28,10 +29,11 @@ import { ipc, type ProjectRecord } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SessionList } from "./SessionList";
+import { ProjectEditDialog } from "./ProjectEditDialog";
 import { formatRelative } from "./format";
 
 
-function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void; onAccounts: () => void }) {
+function ProjectItem({ project, selected, onSelect, onRemove, onAccounts, onEdit }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void; onAccounts: () => void; onEdit: () => void }) {
   return (
     <div className="group/project relative">
       <Tooltip>
@@ -66,7 +68,8 @@ function ProjectItem({ project, selected, onSelect, onRemove, onAccounts }: { pr
             <MoreHorizontal />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="w-max min-w-48 whitespace-nowrap">
+          <DropdownMenuItem onClick={onEdit}><Pencil /> 프로젝트 수정</DropdownMenuItem>
           <DropdownMenuItem onClick={onAccounts}>사용할 계정 선택</DropdownMenuItem>
           <DropdownMenuItem onClick={() => openPath(project.path).catch((e) => toast.error(`열기 실패: ${e}`))}>
             <FolderOpen /> 탐색기에서 열기
@@ -95,6 +98,7 @@ export function ProjectSidebar() {
   const setWizardOpen = useAppStore((s) => s.setWizardOpen);
   const [accountProject, setAccountProject] = useState<ProjectRecord | null>(null);
   const [pendingRemove, setPendingRemove] = useState<ProjectRecord | null>(null);
+  const [editingProject, setEditingProject] = useState<ProjectRecord | null>(null);
 
   const openExisting = async () => {
     try {
@@ -148,7 +152,7 @@ export function ProjectSidebar() {
     <aside aria-label="프로젝트 탐색" data-drop-zone="projects" className={cn("flex h-full w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground", dropping && "ring-2 ring-inset ring-primary/60")}>
       <div className="grid grid-cols-2 gap-1.5 border-b p-2">
         <Button size="sm" className="h-8 px-2" onClick={() => setWizardOpen(true)}><Plus /> 새 프로젝트</Button>
-        <Button size="sm" variant="outline" className="h-8 px-2" onClick={openExisting}><FolderOpen /> 폴더 열기</Button>
+        <Button size="sm" variant="outline" className="h-8 px-2" onClick={openExisting}><FolderOpen /> 기존 폴더</Button>
       </div>
       <div className="flex h-8 shrink-0 items-center justify-between pr-2 pl-3">
         <h2 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">프로젝트 <span className="tabular-nums opacity-70">{projects.length}</span></h2>
@@ -178,6 +182,7 @@ export function ProjectSidebar() {
                   onSelect={() => selectProject(p.id)}
                   onRemove={() => setPendingRemove(p)}
                   onAccounts={() => setAccountProject(p)}
+                  onEdit={() => setEditingProject(p)}
                 />
                 {p.id === activeProjectId && <SessionList projectId={p.id} />}
               </li>
@@ -188,6 +193,7 @@ export function ProjectSidebar() {
 
 
       {accountProject && <ProjectAccountsDialog key={accountProject.id} project={accountProject} onClose={() => setAccountProject(null)} />}
+      {editingProject && <ProjectEditDialog key={editingProject.id} project={editingProject} onClose={() => setEditingProject(null)} />}
       <ConfirmDialog
         open={pendingRemove !== null}
         onOpenChange={(o) => !o && setPendingRemove(null)}

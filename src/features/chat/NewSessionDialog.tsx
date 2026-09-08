@@ -76,7 +76,7 @@ export function NewSessionDialog() {
     const config: SessionConfig = {
       project_id: projectId,
       provider,
-      model,
+      model: model ?? selectedModel?.id ?? null,
       effort,
       permission,
       append_system_prompt: systemPrompt.trim() || null,
@@ -147,12 +147,11 @@ export function NewSessionDialog() {
             <CollapsibleContent className="mt-2 grid gap-3">
           <div className="grid gap-1.5">
             <Label>모델</Label>
-            <Select value={model ?? DEFAULT_OPTION} onValueChange={(v) => setModel(v === DEFAULT_OPTION ? null : v)}>
+            <Select value={model ?? selectedModel?.id ?? ""} onValueChange={setModel}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={loading ? "불러오는 중…" : "모델"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={DEFAULT_OPTION}>자동 선택 (권장)</SelectItem>
                 {models.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.label}

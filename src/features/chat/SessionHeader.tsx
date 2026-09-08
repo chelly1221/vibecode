@@ -2,7 +2,7 @@ import { ipc, type ProjectAccounts } from "@/lib/ipc";
 // Top bar of a session: provider, title, model / effort / permission controls, usage and actions.
 
 import { useEffect, useMemo, useState } from "react";
-import { BotIcon, Settings2Icon, Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
+import { BotIcon, Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,6 @@ export function SessionHeader({
   subagentsOpen?: boolean;
   onToggleSubagents?: () => void;
 }) {
-  const [showSettings, setShowSettings] = useState(false);
   const updateConfig = useSessionsStore((s) => s.updateConfig);
   const subagentCount = Object.keys(session.subagents).length;
   const subagentRunning = runningSubagents(session.subagents);
@@ -68,16 +67,17 @@ export function SessionHeader({
   }, [session.record.id, session.record.provider]);
   const { models, loading } = useModels(session.record.provider, accounts?.[session.record.provider]);
   const id = session.record.id;
+  const modelId = session.model ?? session.resolvedModel ?? models.find((m) => m.is_default)?.id;
 
   const modelOptions = useMemo(() => {
     const list = models.slice();
-    if (session.model && !list.some((m) => m.id === session.model)) {
-      list.push({ provider: session.record.provider, id: session.model, label: session.model, efforts: [], is_default: false });
+    if (modelId && !list.some((m) => m.id === modelId)) {
+      list.push({ provider: session.record.provider, id: modelId, label: modelId, efforts: [], is_default: false });
     }
     return list;
-  }, [models, session.model, session.record.provider]);
+  }, [models, modelId, session.record.provider]);
 
-  const selectedModel = modelOptions.find((m) => m.id === session.model) ?? models.find((m) => m.is_default);
+  const selectedModel = modelOptions.find((m) => m.id === modelId);
   const efforts = selectedModel && selectedModel.efforts.length ? EFFORTS.filter((e) => selectedModel.efforts.includes(e)) : EFFORTS;
 
   const run = (p: Promise<unknown>, label: string) =>
@@ -97,19 +97,15 @@ export function SessionHeader({
       {session.starting && <Loader2Icon className="size-3.5 animate-spin text-muted-foreground" />}
 
       <span className="text-xs text-muted-foreground" role="status">{session.starting ? "연결 중" : session.pendingPermissions.length || session.pendingQuestions.length ? "답변을 기다리고 있어요" : session.running ? "AI가 작업하고 있어요" : "요청을 입력해 주세요"}</span>
-      <div className="ml-auto flex flex-wrap items-center gap-1.5">
-        <Button size="sm" variant={showSettings ? "secondary" : "ghost"} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}><Settings2Icon /> 대화 설정</Button>
-        {showSettings && <>
-
+      <div className="flex w-full flex-wrap items-center gap-1.5">
         <Select
-          value={session.model ?? DEFAULT_OPTION}
-          onValueChange={(v) => run(updateConfig(id, { model: v === DEFAULT_OPTION ? null : v }), "모델 변경")}
+          value={modelId ?? ""}
+          onValueChange={(v) => run(updateConfig(id, { model: v }), "모델 변경")}
         >
-          <SelectTrigger size="sm" className="max-w-56" title="모델">
+          <SelectTrigger size="sm" className="max-w-56" title="모델" aria-label="모델">
             <SelectValue placeholder={loading ? "불러오는 중…" : "모델"} />
           </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={DEFAULT_OPTION}>기본값</SelectItem>
+          <SelectContent position="popper" side="bottom" align="start">
             {modelOptions.map((m) => (
               <SelectItem key={m.id} value={m.id}>
                 {m.label}
@@ -123,10 +119,10 @@ export function SessionHeader({
           value={session.effort ?? DEFAULT_OPTION}
           onValueChange={(v) => run(updateConfig(id, { effort: v === DEFAULT_OPTION ? null : (v as Effort) }), "생각하는 깊이 변경")}
         >
-          <SelectTrigger size="sm" title="생각하는 깊이">
+          <SelectTrigger size="sm" title="생각하는 깊이" aria-label="생각하는 깊이">
             <SelectValue placeholder="생각하는 깊이" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper" side="bottom" align="start" avoidCollisions={false}>
             <SelectItem value={DEFAULT_OPTION}>생각하는 깊이: 기본값</SelectItem>
             {efforts.map((e) => (
               <SelectItem key={e} value={e}>
@@ -140,10 +136,10 @@ export function SessionHeader({
           <TooltipTrigger asChild>
             <div>
               <Select value={session.permission} onValueChange={(v) => run(updateConfig(id, { permission: v as PermissionPreset }), "권한 변경")}>
-                <SelectTrigger size="sm" className={cn(session.permission === "full_auto" && "border-destructive/60 text-destructive")} title="권한">
+                <SelectTrigger size="sm" className={cn(session.permission === "full_auto" && "border-destructive/60 text-destructive")} title="권한" aria-label="권한">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" side="bottom" align="start">
                   {PERMISSION_PRESETS.map((p) => (
                     <SelectItem key={p} value={p} className={cn(p === "full_auto" && "text-destructive")}>
                       {PERMISSION_LABEL[p]}
@@ -158,7 +154,7 @@ export function SessionHeader({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="hidden rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground lg:inline">
+            <span className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
               ↑{formatTokens(session.usage.input_tokens)} ↓{formatTokens(session.usage.output_tokens)}
             </span>
           </TooltipTrigger>
@@ -168,7 +164,6 @@ export function SessionHeader({
           </TooltipContent>
         </Tooltip>
 
-        </>}
         {subagentCount > 0 && onToggleSubagents && (
           <Tooltip>
             <TooltipTrigger asChild>

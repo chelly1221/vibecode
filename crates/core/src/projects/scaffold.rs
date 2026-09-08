@@ -368,17 +368,39 @@ pub fn detect_stack(dir: &Path) -> Option<String> {
 
 /// Register an existing directory as a project (no scaffolding).
 pub async fn open_existing(ctx: Arc<AppContext>, path: &str) -> Result<ProjectRecord> {
+    open_existing_named(ctx, path, None).await
+}
+
+/// The display name is independent of the directory name. Filesystem inspection and SQLite
+/// work run off the async runtime so the registration UI remains responsive.
+pub async fn open_existing_named(ctx: Arc<AppContext>, path: &str, name: Option<&str>) -> Result<ProjectRecord> {
+    let path = path.to_string();
+    let name = name.map(str::to_string);
+    tokio::task::spawn_blocking(move || open_existing_inner(&ctx, &path, name.as_deref()))
+        .await.map_err(|e| CoreError::msg(e.to_string()))?
+}
+
+fn open_existing_inner(ctx: &AppContext, path: &str, name: Option<&str>) -> Result<ProjectRecord> {
+    let name = name.map(str::trim);
+    if let Some(name) = name {
+        check_project_name(name)?;
+    }
     let trimmed = path.trim().trim_end_matches(['\\', '/']);
     let dir = PathBuf::from(trimmed);
     if !dir.is_dir() {
         return Err(CoreError::msg(format!("디렉터리를 찾을 수 없습니다: {trimmed}")));
     }
     if let Some(existing) = ctx.db.find_project_by_path(trimmed)? {
+        if let Some(name) = name {
+            ctx.db.rename_project(&existing.id, name)?;
+        }
         ctx.db.touch_project(&existing.id)?;
         ctx.docs_sync.watch(&dir);
         return ctx.db.get_project(&existing.id);
     }
-    let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| trimmed.to_string());
+    let name = name.map(str::to_string).unwrap_or_else(|| {
+        dir.file_name().map(|n| n.to_string_lossy().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| trimmed.to_string())
+    });
     let now = Utc::now();
     let stack_id = detect_stack(&dir);
     let stack = match &stack_id {
@@ -403,6 +425,22 @@ pub async fn open_existing(ctx: Arc<AppContext>, path: &str) -> Result<ProjectRe
     ctx.db.upsert_project(&project)?;
     ctx.docs_sync.watch(&dir);
     Ok(project)
+}
+
+fn check_project_name(name: &str) -> Result<()> {
+    if !valid_display_name(name) {
+        return Err(CoreError::msg("프로젝트 이름을 확인하세요. 1~100자로 입력하고 경로 문자나 Windows 예약어는 사용할 수 없습니다."));
+    }
+    Ok(())
+}
+
+/// Update only the display name; preserve the folder, sessions, accounts and defaults.
+pub async fn rename_project(ctx: Arc<AppContext>, id: &str, name: &str) -> Result<ProjectRecord> {
+    let name = name.trim().to_string();
+    check_project_name(&name)?;
+    let id = id.to_string();
+    tokio::task::spawn_blocking(move || ctx.db.rename_project(&id, &name))
+        .await.map_err(|e| CoreError::msg(e.to_string()))?
 }
 
 /// Make CLAUDE.md and AGENTS.md identical for a registered project (missing one is cloned from the

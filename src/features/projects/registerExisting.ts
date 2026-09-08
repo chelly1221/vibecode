@@ -6,6 +6,8 @@ import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { ipc, type ProjectRecord } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
+import { basename } from "./format";
+import { validateProjectName } from "./validation";
 
 interface DocsPrompt {
   project: ProjectRecord;
@@ -15,17 +17,22 @@ interface DocsPrompt {
 interface RegisterState {
   prompt: DocsPrompt | null;
   progress: { path: string | null; message: string } | null;
+  draft: { path: string; name: string; error: string | null; resolve: (project: ProjectRecord | null) => void } | null;
   setPrompt: (p: DocsPrompt | null) => void;
+  setName: (name: string) => void;
 }
 
 export const useRegisterStore = create<RegisterState>((set) => ({
   prompt: null,
   progress: null,
+  draft: null,
   setPrompt: (prompt) => set({ prompt }),
+  setName: (name) => set((s) => s.draft && !s.progress ? { draft: { ...s.draft, name, error: null } } : {}),
 }));
 
 function ensureRegistrationIdle() {
-  if (useRegisterStore.getState().progress) {
+  const { progress, draft } = useRegisterStore.getState();
+  if (progress || draft) {
     throw new Error("프로젝트를 등록하고 있어요. 완료 후 다시 시도해 주세요.");
   }
 }
@@ -48,28 +55,67 @@ export async function pickAndRegisterExistingProject(title = "등록할 프로�
     await waitForProgressPaint();
     const path = await openDialog({ directory: true, multiple: false, title });
     if (!path) return null;
-    return await registerProject(path);
+    return await requestRegistration(path);
   } finally {
     useRegisterStore.setState({ progress: null });
   }
 }
 
 /** Register a dropped directory with the same progress UI, without opening a picker. */
-export async function registerExistingProject(path: string): Promise<ProjectRecord> {
+export async function registerExistingProject(path: string): Promise<ProjectRecord | null> {
   ensureRegistrationIdle();
   try {
-    return await registerProject(path);
+    reportProgress(path, "등록 정보를 준비하고 있어요");
+    await waitForProgressPaint();
+    return await requestRegistration(path);
   } finally {
     useRegisterStore.setState({ progress: null });
   }
 }
 
+function requestRegistration(path: string): Promise<ProjectRecord | null> {
+  const normalizePath = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const existing = useAppStore.getState().projects.find((p) => normalizePath(p.path) === normalizePath(path));
+  return new Promise((resolve) => {
+    flushSync(() => useRegisterStore.setState({
+      progress: null,
+      draft: { path, name: existing?.name ?? basename(path), error: null, resolve },
+    }));
+  });
+}
+
+export function cancelExistingRegistration() {
+  const { draft, progress } = useRegisterStore.getState();
+  if (!draft || progress) return;
+  useRegisterStore.setState({ draft: null });
+  draft.resolve(null);
+}
+
+/** Keep the name and error available for retry without reopening the native picker. */
+export async function submitExistingRegistration(): Promise<void> {
+  const { draft, progress } = useRegisterStore.getState();
+  if (!draft || progress) return;
+  const name = draft.name.trim();
+  const error = validateProjectName(name);
+  if (error) {
+    useRegisterStore.setState({ draft: { ...draft, error } });
+    return;
+  }
+  try {
+    const project = await registerProject(draft.path, name);
+    useRegisterStore.setState({ draft: null, progress: null });
+    draft.resolve(project);
+  } catch (e) {
+    useRegisterStore.setState({ progress: null, draft: { ...draft, name, error: String(e) } });
+  }
+}
+
 /** Clone lone agent docs and queue the missing-docs prompt once the project is ready. */
-async function registerProject(path: string): Promise<ProjectRecord> {
+async function registerProject(path: string, name: string): Promise<ProjectRecord> {
   const { loadProjects, selectProject } = useAppStore.getState();
   reportProgress(path, "폴더와 프로젝트 정보를 확인하고 있어요");
   await waitForProgressPaint();
-  const project = await ipc.projects.open(path);
+  const project = await ipc.projects.open(path, name);
   reportProgress(path, "프로젝트 지침 파일을 확인하고 있어요");
   // Clone a lone CLAUDE.md / AGENTS.md before the project is selected (selection syncs too, silently).
   const cloned = await ipc.projects.syncAgentDocs(project.id).catch(() => [] as string[]);
@@ -94,7 +140,7 @@ async function registerProject(path: string): Promise<ProjectRecord> {
 export async function registerDroppedPaths(paths: string[]): Promise<void> {
   for (const p of paths) {
     try {
-      await registerExistingProject(p);
+      if (!await registerExistingProject(p)) break;
     } catch (e) {
       toast.error(`등록 실패 (${p}): ${String(e)}`);
     }

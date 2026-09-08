@@ -1,7 +1,7 @@
 //! End-to-end project creation through a real AppContext on the Windows host. Uses a stack
 //! without a scaffold command so the test needs no network. Needs git (Git for Windows).
 
-use vibecode_core::projects::scaffold::{create_project, open_existing};
+use vibecode_core::projects::scaffold::{create_project, open_existing, open_existing_named, rename_project};
 use vibecode_core::types::{CreateProjectRequest, Effort, PermissionPreset, ProjectType, Provider, ScaffoldEvent, TargetOs};
 use vibecode_core::AppContext;
 
@@ -12,6 +12,52 @@ fn git_bin() -> Option<String> {
     }
     let p = std::path::Path::new("C:\\Program Files\\Git\\cmd\\git.exe");
     p.is_file().then(|| p.to_string_lossy().into_owned())
+}
+
+#[tokio::test]
+async fn existing_project_names_are_persisted_without_changing_the_folder_or_history() {
+    let data = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().to_string_lossy().into_owned();
+    let ctx = AppContext::init(data.path().to_path_buf()).await.unwrap();
+    std::fs::write(folder.path().join("keep.txt"), "original contents").unwrap();
+
+    assert!(open_existing_named(ctx.clone(), &path, Some("   ")).await.is_err());
+    assert!(ctx.db.list_projects().unwrap().is_empty());
+    let mut project = open_existing_named(ctx.clone(), &path, Some("  고객 관리  ")).await.unwrap();
+    assert_eq!(project.name, "고객 관리");
+    project.default_model = Some("kept-model".into());
+    project.default_effort = Some(Effort::High);
+    project.github_url = Some("https://github.com/example/project".into());
+    ctx.db.upsert_project(&project).unwrap();
+    ctx.db.with_conn(|c| {
+        c.execute(
+            "INSERT INTO sessions(id,project_id,provider,title,permission,total_cost_usd,archived,created_at,last_used_at) VALUES('kept-session',?1,'claude','기존 대화','auto_edit',0,0,?2,?2)",
+            rusqlite::params![project.id, project.created_at.to_rfc3339()],
+        )?;
+        Ok(())
+    }).unwrap();
+
+    for name in ["", "bad/name", "CON", "name."] {
+        assert!(rename_project(ctx.clone(), &project.id, name).await.is_err());
+    }
+    assert!(rename_project(ctx.clone(), "missing", "새 이름").await.is_err());
+    let renamed = rename_project(ctx.clone(), &project.id, "  고객 관리 도구  ").await.unwrap();
+    assert_eq!(renamed.name, "고객 관리 도구");
+    assert_eq!(renamed.path, project.path);
+    assert_eq!(renamed.default_model, project.default_model);
+    assert_eq!(renamed.default_effort, project.default_effort);
+    assert_eq!(renamed.github_url, project.github_url);
+    assert_eq!(renamed.created_at, project.created_at);
+    assert_eq!(renamed.last_opened_at, project.last_opened_at);
+    assert_eq!(ctx.db.list_sessions(&project.id).unwrap()[0].id, "kept-session");
+    assert_eq!(std::fs::read_to_string(folder.path().join("keep.txt")).unwrap(), "original contents");
+    assert_eq!(open_existing(ctx.clone(), &path).await.unwrap().name, "고객 관리 도구");
+
+    let reopened = open_existing_named(ctx.clone(), &path, Some("최종 이름")).await.unwrap();
+    assert_eq!(reopened.id, project.id);
+    assert_eq!(ctx.db.list_projects().unwrap().len(), 1);
+    assert_eq!(ctx.db.get_project(&project.id).unwrap().name, "최종 이름");
 }
 
 #[tokio::test]

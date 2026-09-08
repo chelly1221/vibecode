@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { ipc, type ProjectRecord } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
-import { pickAndRegisterExistingProject, registerExistingProject, useRegisterStore } from "./registerExisting";
+import { cancelExistingRegistration, pickAndRegisterExistingProject, registerExistingProject, submitExistingRegistration, useRegisterStore } from "./registerExisting";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.useFakeTimers();
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
-  useRegisterStore.setState({ progress: null, prompt: null });
+  useRegisterStore.setState({ progress: null, prompt: null, draft: null });
   useAppStore.setState({ projects: [], activeProjectId: null, activeSessionId: null });
   vi.mocked(ipc.projects.open).mockResolvedValue(project);
   vi.mocked(ipc.projects.list).mockResolvedValue([project]);
@@ -52,15 +52,23 @@ describe("existing folder registration feedback", () => {
     expect(ipc.projects.open).not.toHaveBeenCalled();
 
     const idleGaps: boolean[] = [];
-    const unsubscribe = useRegisterStore.subscribe((s) => idleGaps.push(s.progress === null));
+    const unsubscribe = useRegisterStore.subscribe((s) => idleGaps.push(!s.progress && !s.draft));
     picker.resolve(project.path);
     await vi.runAllTimersAsync();
+    expect(useRegisterStore.getState().draft?.path).toBe(project.path);
+    expect(useRegisterStore.getState().draft?.name).toBe("existing");
+    expect(ipc.projects.open).not.toHaveBeenCalled();
+    useRegisterStore.getState().setName("내 프로젝트");
+    const submission = submitExistingRegistration();
     expect(useRegisterStore.getState().progress?.path).toBe(project.path);
+    await vi.runAllTimersAsync();
+    expect(ipc.projects.open).toHaveBeenCalledWith(project.path, "내 프로젝트");
     expect(useAppStore.getState().activeProjectId).toBeNull();
     expect(idleGaps).not.toContain(true);
     unsubscribe();
 
     listing.resolve([project]);
+    await submission;
     await expect(pending).resolves.toEqual(project);
     expect(useRegisterStore.getState().progress).toBeNull();
     expect(useRegisterStore.getState().prompt?.project.id).toBe(project.id);
@@ -87,14 +95,65 @@ describe("existing folder registration feedback", () => {
     await expect(retry).resolves.toBeNull();
   });
 
-  it("paints feedback for dropped folders before registration and clears it on failure", async () => {
-    vi.mocked(ipc.projects.open).mockRejectedValue(new Error("folder unavailable"));
-    const failure = expect(registerExistingProject(project.path)).rejects.toThrow("folder unavailable");
+  it("keeps the entered name on failure and retries without another picker", async () => {
+    vi.mocked(ipc.projects.open).mockRejectedValueOnce(new Error("folder unavailable")).mockResolvedValueOnce(project);
+    const pending = registerExistingProject(project.path);
     expect(useRegisterStore.getState().progress?.path).toBe(project.path);
     expect(ipc.projects.open).not.toHaveBeenCalled();
     await vi.runAllTimersAsync();
-    await failure;
+    useRegisterStore.getState().setName("사용자 지정 이름");
+    const submission = submitExistingRegistration();
+    await vi.runAllTimersAsync();
+    await submission;
     expect(useRegisterStore.getState().progress).toBeNull();
+    expect(useRegisterStore.getState().draft?.name).toBe("사용자 지정 이름");
+    expect(useRegisterStore.getState().draft?.error).toContain("folder unavailable");
+    const retry = submitExistingRegistration();
+    await vi.runAllTimersAsync();
+    await retry;
+    await expect(pending).resolves.toEqual(project);
+    expect(openDialog).not.toHaveBeenCalled();
+    expect(useRegisterStore.getState().draft).toBeNull();
+  });
+
+  it("cancels the name form without changing projects and allows another registration", async () => {
+    const pending = registerExistingProject(project.path);
+    await vi.runAllTimersAsync();
+    await expect(registerExistingProject(project.path)).rejects.toThrow();
+    cancelExistingRegistration();
+    await expect(pending).resolves.toBeNull();
+    expect(ipc.projects.open).not.toHaveBeenCalled();
+    const retry = registerExistingProject(project.path);
+    await vi.runAllTimersAsync();
+    cancelExistingRegistration();
+    await expect(retry).resolves.toBeNull();
+  });
+
+  it("validates the name and prevents duplicate submission while registration is running", async () => {
+    const pending = registerExistingProject(project.path);
+    await vi.runAllTimersAsync();
+    useRegisterStore.getState().setName("  ");
+    await submitExistingRegistration();
+    expect(useRegisterStore.getState().draft?.error).toBeTruthy();
+    expect(ipc.projects.open).not.toHaveBeenCalled();
+    useRegisterStore.getState().setName("  새 이름  ");
+    const submission = submitExistingRegistration();
+    await submitExistingRegistration();
+    cancelExistingRegistration();
+    expect(useRegisterStore.getState().draft).not.toBeNull();
+    await vi.runAllTimersAsync();
+    await submission;
+    await pending;
+    expect(ipc.projects.open).toHaveBeenCalledExactlyOnceWith(project.path, "새 이름");
+  });
+
+  it("prefills the saved display name when opening a registered folder again", async () => {
+    useAppStore.setState({ projects: [project] });
+    const pending = registerExistingProject(project.path + "\\");
+    await vi.runAllTimersAsync();
+    expect(useRegisterStore.getState().draft?.name).toBe(project.name);
+    cancelExistingRegistration();
+    await pending;
   });
 
   it("prevents duplicate pickers and dropped registrations while a picker response is pending", async () => {

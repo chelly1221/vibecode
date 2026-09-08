@@ -103,7 +103,8 @@ export const ipc = {
     create: (req: CreateProjectRequest, onEvent: (e: ScaffoldEvent) => void) =>
       invoke<ProjectRecord>("projects_create", { req, onEvent: channel(onEvent) }),
     /** Register an existing directory (created outside the app); stack is detected heuristically. */
-    open: (path: string) => invoke<ProjectRecord>("projects_open", { path }),
+    open: (path: string, name?: string) => invoke<ProjectRecord>("projects_open", { path, name: name ?? null }),
+    rename: (id: string, name: string) => invoke<ProjectRecord>("projects_rename", { id, name }),
     agentDocsStatus: (id: string) => invoke<AgentDocsStatus>("projects_agent_docs_status", { id }),
     /** Make CLAUDE.md / AGENTS.md identical (missing one cloned, newest wins); resolves with the file written, if any. */
     syncAgentDocs: (id: string) => invoke<string[]>("projects_sync_agent_docs", { id }),

@@ -172,7 +172,7 @@ export function SessionList({ projectId }: { projectId: string }) {
                         <MoreHorizontal />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="w-max min-w-48 whitespace-nowrap">
                       <DropdownMenuItem onClick={() => setRenaming({ id: s.id, title: s.title })}>
                         <Pencil /> 이름 바꾸기
                       </DropdownMenuItem>

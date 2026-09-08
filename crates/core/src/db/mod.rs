@@ -258,6 +258,15 @@ impl Db {
         })
     }
 
+    pub fn rename_project(&self, id: &str, name: &str) -> Result<ProjectRecord> {
+        self.with_conn(|c| {
+            if c.execute("UPDATE projects SET name=?2 WHERE id=?1", params![id, name])? == 0 {
+                return Err(CoreError::NotFound(format!("project {id}")));
+            }
+            Ok(c.query_row("SELECT * FROM projects WHERE id=?1", params![id], row_project)?)
+        })
+    }
+
     pub fn delete_project(&self, id: &str) -> Result<()> {
         self.with_conn(|c| {
             c.execute("DELETE FROM projects WHERE id=?1", params![id])?;

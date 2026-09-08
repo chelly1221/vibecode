@@ -30,8 +30,13 @@ pub async fn projects_create(state: State<'_, AppState>, req: CreateProjectReque
 }
 
 #[tauri::command]
-pub async fn projects_open(state: State<'_, AppState>, path: String) -> Result<ProjectRecord, String> {
-    scaffold::open_existing(state.ctx.clone(), &path).await.map_err(err)
+pub async fn projects_open(state: State<'_, AppState>, path: String, name: Option<String>) -> Result<ProjectRecord, String> {
+    scaffold::open_existing_named(state.ctx.clone(), &path, name.as_deref()).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn projects_rename(state: State<'_, AppState>, id: String, name: String) -> Result<ProjectRecord, String> {
+    scaffold::rename_project(state.ctx.clone(), &id, &name).await.map_err(err)
 }
 
 #[tauri::command]
