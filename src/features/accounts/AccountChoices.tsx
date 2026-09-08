@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ipc, type AccountKind, type AccountProfile, type ProjectAccounts } from "@/lib/ipc";
 import { AccountManager, ACCOUNT_LABELS, selectClass } from "./AccountManager";
 
-export function AccountChoices({ value, onChange, disabled = false }: { value: ProjectAccounts; onChange: (value: ProjectAccounts) => void; disabled?: boolean }) {
+export function AccountChoices({ value, onChange, disabled = false, showCommitAuthor = false }: { value: ProjectAccounts; onChange: (value: ProjectAccounts) => void; disabled?: boolean; showCommitAuthor?: boolean }) {
   const [profiles, setProfiles] = useState<AccountProfile[]>([]);
   const [manage, setManage] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +22,7 @@ export function AccountChoices({ value, onChange, disabled = false }: { value: P
       {profiles.filter((p) => p.kind === kind).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       {value[kind] && !profiles.some((p) => p.id === value[kind]) && <option value={value[kind]!}>선택한 계정을 찾을 수 없습니다</option>}
     </select></label>)}</div>
-    <details><summary className="cursor-pointer text-xs text-muted-foreground">Git 커밋 작성자 설정</summary><div className="mt-3 grid gap-3 sm:grid-cols-2"><div className="grid gap-1.5"><Label htmlFor={`${id}-name`}>이름</Label><Input id={`${id}-name`} value={value.git_user_name ?? ""} disabled={disabled} placeholder="커밋에 표시할 이름" onChange={(e) => onChange({ ...value, git_user_name: e.target.value || null })} /></div><div className="grid gap-1.5"><Label htmlFor={`${id}-email`}>이메일</Label><Input id={`${id}-email`} value={value.git_user_email ?? ""} disabled={disabled} placeholder="커밋에 표시할 이메일" onChange={(e) => onChange({ ...value, git_user_email: e.target.value || null })} /></div></div></details>
+    <details open={showCommitAuthor || undefined}><summary className="cursor-pointer text-xs text-muted-foreground">Git 커밋 작성자 설정</summary><div className="mt-3 grid gap-3 sm:grid-cols-2"><div className="grid gap-1.5"><Label htmlFor={`${id}-name`}>이름</Label><Input id={`${id}-name`} value={value.git_user_name ?? ""} disabled={disabled} placeholder="커밋에 표시할 이름" onChange={(e) => onChange({ ...value, git_user_name: e.target.value || null })} /></div><div className="grid gap-1.5"><Label htmlFor={`${id}-email`}>이메일</Label><Input id={`${id}-email`} value={value.git_user_email ?? ""} disabled={disabled} placeholder="커밋에 표시할 이메일" onChange={(e) => onChange({ ...value, git_user_email: e.target.value || null })} /></div></div></details>
     <Dialog open={manage} onOpenChange={setManage}><DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>계정 등록·관리</DialogTitle><DialogDescription>계정을 연결한 후 이 창을 닫고 프로젝트에서 선택하세요.</DialogDescription></DialogHeader><AccountManager onChanged={() => void refresh()} /></DialogContent></Dialog>
   </section>;
 }

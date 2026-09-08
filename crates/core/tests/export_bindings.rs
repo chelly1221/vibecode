@@ -11,7 +11,7 @@ fn export_bindings() {
     }
     export!(
         AccountKind, AccountProfile, ProjectAccounts, Provider, Effort, PermissionPreset, AppSettings, ToolStatus, AuthStatus, ModelInfo,
-        TargetOs, ProjectType, StackInfo, ProjectRecord, CreateProjectRequest, ScaffoldEvent, SessionConfig,
+        TargetOs, ProjectType, StackInfo, ProjectRecord, ProjectSettingsUpdate, ProjectRemoteStatus, CreateProjectRequest, ScaffoldEvent, SessionConfig,
         SessionConfigPatch, SessionRecord, MessageKind, MessageRecord, PermissionKind, PermissionDecision,
         PermissionReply, PlanStep, Usage, SessionEvent, GitFileStatus, GitStatus, GitBranch, GitCommit, GitHubUser,
         GitHubRepo, PtySpec, PtyEvent, LoginEvent, ToolInstallEvent, McpTransport, EnvVar, McpServerConfig, QuestionOption, AgentQuestion, QuestionAnswer, CheckpointRecord, FsEntry, FsFile, StackRecommendRequest, StackRecommendation, SshKeyInfo, PreviewEvent, PreviewStatus, AgentDocsStatus, ProjectPlanRequest, ProjectPlan, InstallStatus,

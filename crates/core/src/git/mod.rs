@@ -254,6 +254,60 @@ impl Git {
         Ok(if out.success() { Some(out.stdout.trim().to_string()).filter(|s| !s.is_empty()) } else { None })
     }
 
+    pub async fn is_repository(&self, repo: &Path) -> Result<bool> {
+        let out = self.run_raw(Some(repo), &["rev-parse", "--is-inside-work-tree"]).await?;
+        if out.success() { return Ok(out.stdout.trim() == "true"); }
+        if out.stderr.contains("not a git repository") { return Ok(false); }
+        Err(CoreError::Process { code: out.code, stderr: out.stderr })
+    }
+
+    async fn origin_config(&self, repo: &Path) -> Result<Vec<(String, String)>> {
+        let out = self.run_raw(Some(repo), &["config", "--local", "--null", "--get-regexp", r"^remote\.origin\."]).await?;
+        if out.code == Some(1) { return Ok(vec![]); }
+        let out = out.into_result()?;
+        Ok(out.stdout.split('\0').filter_map(|line| line.split_once('\n').map(|(k,v)| (k.to_string(),v.to_string()))).collect())
+    }
+
+    /// Restore only origin's configuration. Other remotes, branch settings and tracking refs
+    /// are retained, including when disconnecting origin or rolling back a failed settings save.
+    pub async fn restore_origin(&self, repo: &Path, config: &[(String, String)]) -> Result<()> {
+        if !self.origin_config(repo).await?.is_empty() {
+            self.run(repo, &["config", "--local", "--remove-section", "remote.origin"]).await?;
+        }
+        for (key, value) in config {
+            self.run(repo, &["config", "--local", "--add", key, value]).await?;
+        }
+        Ok(())
+    }
+
+    /// Update both fetch and any explicit push destination to the selected repository.
+    /// Returns the prior origin config for rollback if the SQLite save fails.
+    pub async fn configure_origin(&self, repo: &Path, url: Option<&str>) -> Result<Vec<(String, String)>> {
+        let previous = self.origin_config(repo).await?;
+        let result = async {
+            if let Some(url) = url {
+                if previous.is_empty() {
+                    self.run(repo, &["remote", "add", "origin", url]).await?;
+                } else {
+                    self.run(repo, &["config", "--local", "--replace-all", "remote.origin.url", url]).await?;
+                    if previous.iter().any(|(k,_)| k == "remote.origin.pushurl") {
+                        self.run(repo, &["config", "--local", "--replace-all", "remote.origin.pushurl", url]).await?;
+                    }
+                }
+            } else if !previous.is_empty() {
+                self.run(repo, &["config", "--local", "--remove-section", "remote.origin"]).await?;
+            }
+            Ok::<(), CoreError>(())
+        }.await;
+        if let Err(error) = result {
+            if let Err(restore) = self.restore_origin(repo, &previous).await {
+                return Err(CoreError::msg(format!("저장소 연결 변경 실패: {error}. 이전 연결 복구 실패: {restore}")));
+            }
+            return Err(error);
+        }
+        Ok(previous)
+    }
+
     pub async fn add_remote(&self, repo: &Path, name: &str, url: &str) -> Result<()> {
         if self.remote_url(repo, name).await?.is_some() {
             self.run(repo, &["remote", "set-url", name, url]).await?;

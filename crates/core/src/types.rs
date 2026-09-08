@@ -316,6 +316,27 @@ pub struct ProjectRecord {
     pub last_opened_at: DateTime<Utc>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct ProjectSettingsUpdate {
+    pub name: String,
+    pub accounts: ProjectAccounts,
+    pub default_provider: Provider,
+    pub default_model: Option<String>,
+    pub default_effort: Option<Effort>,
+    pub default_permission: PermissionPreset,
+    /// Only change origin when the user edits the repository connection.
+    pub update_remote: bool,
+    pub remote_url: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct ProjectRemoteStatus {
+    pub is_repo: bool,
+    pub url: Option<String>,
+}
+
 /// Which agent instruction files exist in a project directory.
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]

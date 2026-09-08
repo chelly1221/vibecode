@@ -34,6 +34,8 @@ import type { PreviewStatus } from "./bindings/PreviewStatus";
 import type { ProjectPlan } from "./bindings/ProjectPlan";
 import type { ProjectPlanRequest } from "./bindings/ProjectPlanRequest";
 import type { ProjectRecord } from "./bindings/ProjectRecord";
+import type { ProjectRemoteStatus } from "./bindings/ProjectRemoteStatus";
+import type { ProjectSettingsUpdate } from "./bindings/ProjectSettingsUpdate";
 import type { ProjectType } from "./bindings/ProjectType";
 import type { Provider } from "./bindings/Provider";
 import type { PtyEvent } from "./bindings/PtyEvent";
@@ -105,6 +107,8 @@ export const ipc = {
     /** Register an existing directory (created outside the app); stack is detected heuristically. */
     open: (path: string, name?: string) => invoke<ProjectRecord>("projects_open", { path, name: name ?? null }),
     rename: (id: string, name: string) => invoke<ProjectRecord>("projects_rename", { id, name }),
+    update: (id: string, req: ProjectSettingsUpdate) => invoke<ProjectRecord>("projects_update", { id, req }),
+    remoteStatus: (id: string) => invoke<ProjectRemoteStatus>("projects_remote_status", { id }),
     agentDocsStatus: (id: string) => invoke<AgentDocsStatus>("projects_agent_docs_status", { id }),
     /** Make CLAUDE.md / AGENTS.md identical (missing one cloned, newest wins); resolves with the file written, if any. */
     syncAgentDocs: (id: string) => invoke<string[]>("projects_sync_agent_docs", { id }),
@@ -240,6 +244,8 @@ export type {
   PreviewEvent,
   PreviewStatus,
   ProjectRecord,
+  ProjectRemoteStatus,
+  ProjectSettingsUpdate,
   ProjectType,
   Provider,
   PtyEvent,

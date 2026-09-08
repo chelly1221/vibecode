@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 use vibecode_core::projects::{catalog, scaffold};
-use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ProjectPlan, ProjectPlanRequest, ProjectRecord, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
+use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ProjectPlan, ProjectPlanRequest, ProjectRecord, ProjectRemoteStatus, ProjectSettingsUpdate, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
 
 use crate::state::{err, AppState};
 
@@ -37,6 +37,16 @@ pub async fn projects_open(state: State<'_, AppState>, path: String, name: Optio
 #[tauri::command]
 pub async fn projects_rename(state: State<'_, AppState>, id: String, name: String) -> Result<ProjectRecord, String> {
     scaffold::rename_project(state.ctx.clone(), &id, &name).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn projects_update(state: State<'_, AppState>, id: String, req: ProjectSettingsUpdate) -> Result<ProjectRecord, String> {
+    vibecode_core::projects::settings::update(state.ctx.clone(), id, req).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn projects_remote_status(state: State<'_, AppState>, id: String) -> Result<ProjectRemoteStatus, String> {
+    vibecode_core::projects::settings::remote_status(state.ctx.clone(), id).await.map_err(err)
 }
 
 #[tauri::command]

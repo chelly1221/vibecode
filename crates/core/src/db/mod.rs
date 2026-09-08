@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::error::{CoreError, Result};
 use crate::types::{
-    AppSettings, CheckpointRecord, Effort, MessageKind, MessageRecord, PermissionPreset, ProjectRecord, ProjectType, Provider,
+    AppSettings, CheckpointRecord, Effort, MessageKind, MessageRecord, PermissionPreset, ProjectRecord, ProjectSettingsUpdate, ProjectType, Provider,
     SessionRecord, TargetOs,
 };
 
@@ -264,6 +264,27 @@ impl Db {
                 return Err(CoreError::NotFound(format!("project {id}")));
             }
             Ok(c.query_row("SELECT * FROM projects WHERE id=?1", params![id], row_project)?)
+        })
+    }
+
+    pub fn update_project_settings(&self, id: &str, req: &ProjectSettingsUpdate, github_url: Option<&str>) -> Result<ProjectRecord> {
+        self.with_conn(|c| {
+            let tx = c.unchecked_transaction()?;
+            if tx.execute(
+                "UPDATE projects SET name=?2,default_provider=?3,default_model=?4,default_effort=?5,default_permission=?6,
+                 github_url=CASE WHEN ?7 THEN ?8 ELSE github_url END WHERE id=?1",
+                params![id, req.name, enum_str(&req.default_provider), req.default_model,
+                    req.default_effort.as_ref().map(enum_str), enum_str(&req.default_permission), req.update_remote, github_url],
+            )? == 0 {
+                return Err(CoreError::NotFound(format!("project {id}")));
+            }
+            tx.execute(
+                "INSERT INTO project_accounts(project_id,value_json) VALUES(?1,?2) ON CONFLICT(project_id) DO UPDATE SET value_json=excluded.value_json",
+                params![id, serde_json::to_string(&req.accounts)?],
+            )?;
+            let updated = tx.query_row("SELECT * FROM projects WHERE id=?1", [id], row_project)?;
+            tx.commit()?;
+            Ok(updated)
         })
     }
 

@@ -1,7 +1,7 @@
 // Main chat area: session header, transcript, pending permission banner, composer.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2Icon, MessageSquarePlusIcon, PlayIcon } from "lucide-react";
+import { Loader2Icon, MessageSquarePlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { PermissionDecision } from "@/lib/bindings/PermissionDecision";
@@ -29,7 +29,6 @@ export function ChatView() {
 
   const session = useSessionsStore((s) => (activeSessionId ? s.sessions[activeSessionId] : undefined));
   const loadHistory = useSessionsStore((s) => s.loadHistory);
-  const resume = useSessionsStore((s) => s.resume);
   const send = useSessionsStore((s) => s.send);
   const interrupt = useSessionsStore((s) => s.interrupt);
   const permissionReply = useSessionsStore((s) => s.permissionReply);
@@ -99,11 +98,6 @@ export function ChatView() {
     if (!activeSessionId) return;
     interrupt(activeSessionId).catch((e) => toast.error("중단 실패", { description: String(e) }));
   }, [activeSessionId, interrupt]);
-
-  const onResume = useCallback(() => {
-    if (!activeSessionId) return;
-    resume(activeSessionId).catch((e) => toast.error("세션을 이어갈 수 없습니다", { description: String(e) }));
-  }, [activeSessionId, resume]);
 
   if (!activeProjectId) return <Welcome />;
 
@@ -183,19 +177,10 @@ export function ChatView() {
           </div>
         </div>
       )}
-      {!session.live && !session.starting && session.historyLoaded && (
-        <div className="flex items-center justify-center gap-3 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-          이전 대화입니다. 메시지를 보내면 이어서 작업할 수 있어요.
-          <Button size="sm" variant="outline" onClick={onResume}>
-            <PlayIcon data-icon="inline-start" />
-            이어서 진행
-          </Button>
-        </div>
-      )}
       {showLongWarning && (
         <LongSessionBanner count={questions} onNewSession={() => setNewSessionOpen(true)} onDismiss={() => dismissLongWarning(session.record.id)} />
       )}
-      <Composer key={activeSessionId} draftKey={activeSessionId} running={session.running} starting={session.starting} live={session.live} onSend={onSend} onInterrupt={onInterrupt} />
+      <Composer key={activeSessionId} draftKey={activeSessionId} running={session.running} starting={session.starting} onSend={onSend} onInterrupt={onInterrupt} />
       <NewSessionDialog />
       <CheckpointDialogs />
     </div>

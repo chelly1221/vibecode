@@ -7,3 +7,4 @@ pub mod catalog;
 pub mod docs_sync;
 pub mod install;
 pub mod scaffold;
+pub mod settings;

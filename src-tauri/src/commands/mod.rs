@@ -38,6 +38,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         projects::projects_create,
         projects::projects_open,
         projects::projects_rename,
+        projects::projects_update,
+        projects::projects_remote_status,
         projects::projects_remove,
         projects::stacks_list,
         projects::stacks_recommend,

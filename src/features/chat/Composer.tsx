@@ -15,7 +15,6 @@ export interface ComposerProps {
   disabled?: boolean;
   running: boolean;
   starting: boolean;
-  live: boolean;
   onSend: (text: string) => void | Promise<void>;
   onInterrupt: () => void;
 }
@@ -30,7 +29,7 @@ function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export function Composer({ draftKey, disabled, running, starting, live, onSend, onInterrupt }: ComposerProps) {
+export function Composer({ draftKey, disabled, running, starting, onSend, onInterrupt }: ComposerProps) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const sendLock = useRef(false);
   useEffect(() => {
@@ -133,11 +132,9 @@ export function Composer({ draftKey, disabled, running, starting, live, onSend, 
 
   const placeholder = starting
     ? "AI와 연결하고 있어요…"
-    : !live
-      ? "원하는 작업을 적어 주세요. AI가 이어서 도와드릴게요"
-      : running
-        ? "작업 중… 메시지를 추가로 보낼 수 있습니다"
-        : "예: 첫 화면을 더 밝게 바꾸고 예약 버튼을 추가해 줘";
+    : running
+      ? "작업 중… 메시지를 추가로 보낼 수 있습니다"
+      : "예: 첫 화면을 더 밝게 바꾸고 예약 버튼을 추가해 줘";
 
   return (
     <div className={cn("border-t bg-background p-3", dragging && "bg-primary/5")}>
