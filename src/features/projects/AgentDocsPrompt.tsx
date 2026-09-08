@@ -48,10 +48,10 @@ export function AgentDocsPrompt() {
             <div className="mb-1 flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <FolderOpen className="size-5" aria-hidden="true" />
             </div>
-            <DialogTitle>프로젝트를 등록하고 있어요</DialogTitle>
-            <DialogDescription>준비가 끝나면 자동으로 다음 화면으로 이동해요.</DialogDescription>
+            <DialogTitle>{progress.path ? "프로젝트를 등록하고 있어요" : "기존 폴더를 열고 있어요"}</DialogTitle>
+            <DialogDescription>{progress.path ? "준비가 끝나면 자동으로 다음 화면으로 이동해요." : "폴더 선택이 끝나면 자동으로 등록을 이어서 진행해요."}</DialogDescription>
           </DialogHeader>
-          <p className="max-h-28 overflow-y-auto rounded-lg border bg-muted/40 px-3 py-2 text-xs leading-relaxed break-all text-muted-foreground">{progress.path}</p>
+          {progress.path && <p className="max-h-28 overflow-y-auto rounded-lg border bg-muted/40 px-3 py-2 text-xs leading-relaxed break-all text-muted-foreground">{progress.path}</p>}
           <div role="status" aria-atomic="true" className="flex items-center gap-2.5 py-1 text-sm">
             <Loader2 className="size-4 shrink-0 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
             <span>{progress.message}</span>

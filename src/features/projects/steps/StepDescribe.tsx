@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app";
 import { useWizardStore } from "@/stores/wizard";
-import { registerExistingProject } from "../registerExisting";
+import { pickAndRegisterExistingProject } from "../registerExisting";
 import { pathWarnings } from "../validation";
 
 const EXAMPLES = [
@@ -42,10 +42,8 @@ export function StepDescribe({ onAdvanced }: Props) {
 
   const registerExisting = async () => {
     try {
-      const picked = await openDialog({ directory: true, multiple: false, title: "등록할 프로젝트 폴더 선택" });
-      if (!picked) return;
-      await registerExistingProject(picked);
-      setWizardOpen(false);
+      const project = await pickAndRegisterExistingProject();
+      if (project) setWizardOpen(false);
     } catch (e) {
       toast.error(`프로젝트를 등록하지 못했습니다: ${e}`);
     }

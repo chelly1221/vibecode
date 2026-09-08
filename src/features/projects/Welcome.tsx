@@ -1,9 +1,8 @@
 import { ArrowRight, FolderOpen, MessageSquare, MonitorPlay, Sparkles } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app";
-import { registerExistingProject } from "./registerExisting";
+import { pickAndRegisterExistingProject } from "./registerExisting";
 
 export function Welcome() {
   const projects = useAppStore((s) => s.projects);
@@ -11,8 +10,7 @@ export function Welcome() {
   const selectProject = useAppStore((s) => s.selectProject);
   const openExisting = async () => {
     try {
-      const path = await open({ directory: true, multiple: false, title: "이어서 작업할 폴더 선택" });
-      if (path) await registerExistingProject(path);
+      await pickAndRegisterExistingProject("이어서 작업할 폴더 선택");
     } catch (e) {
       toast.error("폴더를 열지 못했어요", { description: String(e) });
     }

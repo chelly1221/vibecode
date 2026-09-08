@@ -1,6 +1,5 @@
 import { ProjectAccountsDialog } from "@/features/accounts/ProjectAccountsDialog";
 import { useEffect, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ExternalLink,
@@ -11,7 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { isOverElement, PROJECT_DROP_ZONE } from "@/lib/dropZones";
-import { registerDroppedPaths, registerExistingProject } from "./registerExisting";
+import { registerDroppedPaths, pickAndRegisterExistingProject } from "./registerExisting";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -98,9 +97,7 @@ export function ProjectSidebar() {
 
   const openExisting = async () => {
     try {
-      const picked = await openDialog({ directory: true, multiple: false, title: "등록할 프로젝트 폴더 선택" });
-      if (!picked) return;
-      await registerExistingProject(picked);
+      await pickAndRegisterExistingProject();
     } catch (e) {
       toast.error(`프로젝트를 등록하지 못했습니다: ${e}`);
     }

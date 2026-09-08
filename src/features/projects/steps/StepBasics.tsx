@@ -2,7 +2,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
-import { registerExistingProject } from "../registerExisting";
+import { pickAndRegisterExistingProject } from "../registerExisting";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,10 +34,8 @@ export function StepBasics() {
   const setWizardOpen = useAppStore((s) => s.setWizardOpen);
   const registerExisting = async () => {
     try {
-      const picked = await openDialog({ directory: true, multiple: false, title: "등록할 프로젝트 폴더 선택" });
-      if (!picked) return;
-      await registerExistingProject(picked);
-      setWizardOpen(false);
+      const project = await pickAndRegisterExistingProject();
+      if (project) setWizardOpen(false);
     } catch (e) {
       toast.error(`프로젝트를 등록하지 못했습니다: ${e}`);
     }
