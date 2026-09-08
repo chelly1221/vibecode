@@ -10,6 +10,7 @@ import { useAppStore } from "@/stores/app";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { ProjectSidebar } from "@/features/projects/ProjectSidebar";
 import { ProjectWizard } from "@/features/projects/ProjectWizard";
+import { AgentDocsPrompt } from "@/features/projects/AgentDocsPrompt";
 import { ChatView } from "@/features/chat/ChatView";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 
@@ -149,6 +150,7 @@ export default function App() {
         <>
           <ProjectWizard />
           {settingsOpen && <Suspense fallback={null}><SettingsDialog /></Suspense>}
+          <AgentDocsPrompt />
         </>
       )}
       <Toaster />

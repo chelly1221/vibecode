@@ -12,16 +12,14 @@ interface DocsPrompt {
 
 interface RegisterState {
   prompt: DocsPrompt | null;
-  busy: boolean;
+  progress: { path: string; message: string } | null;
   setPrompt: (p: DocsPrompt | null) => void;
-  setBusy: (b: boolean) => void;
 }
 
 export const useRegisterStore = create<RegisterState>((set) => ({
   prompt: null,
-  busy: false,
+  progress: null,
   setPrompt: (prompt) => set({ prompt }),
-  setBusy: (busy) => set({ busy }),
 }));
 
 /**
@@ -30,22 +28,35 @@ export const useRegisterStore = create<RegisterState>((set) => ({
  * (rendered by AgentDocsPrompt).
  */
 export async function registerExistingProject(path: string): Promise<ProjectRecord> {
-  const { loadProjects, selectProject } = useAppStore.getState();
-  const project = await ipc.projects.open(path);
-  // Clone a lone CLAUDE.md / AGENTS.md before the project is selected (selection syncs too, silently).
-  const cloned = await ipc.projects.syncAgentDocs(project.id).catch(() => [] as string[]);
-  await loadProjects();
-  selectProject(project.id);
-  toast.success(`"${project.name}" 프로젝트를 등록했습니다${project.stack_id ? ` (스택: ${project.stack_id})` : ""}.`);
-  if (cloned.length) toast.info(`${cloned.join(", ")}을(를) 기존 지침 파일에서 복제했습니다. 두 파일은 앞으로 같은 내용으로 유지됩니다.`);
-  try {
-    const st = await ipc.projects.agentDocsStatus(project.id);
-    const missing = [...(!st.claude_md ? ["CLAUDE.md"] : []), ...(!st.agents_md ? ["AGENTS.md"] : [])];
-    if (missing.length) useRegisterStore.getState().setPrompt({ project, missing });
-  } catch {
-    /* status is best-effort */
+  if (useRegisterStore.getState().progress) {
+    throw new Error("프로젝트를 등록하고 있어요. 완료 후 다시 시도해 주세요.");
   }
-  return project;
+  const { loadProjects, selectProject } = useAppStore.getState();
+  const reportProgress = (message: string) => useRegisterStore.setState({ progress: { path, message } });
+  reportProgress("폴더와 프로젝트 정보를 확인하고 있어요");
+  try {
+    const project = await ipc.projects.open(path);
+    reportProgress("프로젝트 지침 파일을 확인하고 있어요");
+    // Clone a lone CLAUDE.md / AGENTS.md before the project is selected (selection syncs too, silently).
+    const cloned = await ipc.projects.syncAgentDocs(project.id).catch(() => [] as string[]);
+    let prompt: DocsPrompt | null = null;
+    try {
+      const st = await ipc.projects.agentDocsStatus(project.id);
+      const missing = [...(!st.claude_md ? ["CLAUDE.md"] : []), ...(!st.agents_md ? ["AGENTS.md"] : [])];
+      if (missing.length) prompt = { project, missing };
+    } catch {
+      /* status is best-effort */
+    }
+    reportProgress("프로젝트 화면을 준비하고 있어요");
+    await loadProjects();
+    selectProject(project.id);
+    useRegisterStore.getState().setPrompt(prompt);
+    toast.success(`"${project.name}" 프로젝트를 등록했습니다${project.stack_id ? ` (스택: ${project.stack_id})` : ""}.`);
+    if (cloned.length) toast.info(`${cloned.join(", ")}을(를) 기존 지침 파일에서 복제했습니다. 두 파일은 앞으로 같은 내용으로 유지됩니다.`);
+    return project;
+  } finally {
+    useRegisterStore.setState({ progress: null });
+  }
 }
 
 /** Register several dropped paths; non-directories are reported and skipped. */

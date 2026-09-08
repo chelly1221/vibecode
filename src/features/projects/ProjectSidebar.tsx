@@ -12,7 +12,6 @@ import {
 import { toast } from "sonner";
 import { isOverElement, PROJECT_DROP_ZONE } from "@/lib/dropZones";
 import { registerDroppedPaths, registerExistingProject } from "./registerExisting";
-import { AgentDocsPrompt } from "./AgentDocsPrompt";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -199,7 +198,6 @@ export function ProjectSidebar() {
         destructive
         onConfirm={remove}
       />
-      <AgentDocsPrompt />
     </aside>
   );
 }
