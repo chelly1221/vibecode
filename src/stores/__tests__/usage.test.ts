@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RateLimitWindow } from "@/lib/ipc";
-import { emptyAccount, mergeReport, mergeSamples, orderedWindows, pushPoint, usageKey, useUsageStore } from "@/stores/usage";
+import { emptyAccount, mergeReport, mergeSamples, orderedWindows, pushPoint, shortWindow, usageKey, useUsageStore } from "@/stores/usage";
 import { remainingPercent, reportAge, resetCountdown, usageLevel } from "@/features/usage/format";
 
 vi.mock("@/lib/ipc", () => ({ ipc: { usage: { latest: vi.fn(), history: vi.fn(), refresh: vi.fn() } } }));
@@ -17,6 +17,14 @@ describe("usage store merge", () => {
     expect(acc.windows.five_hour.points.map((p) => p.used)).toEqual([10, 12]);
     expect(acc.windows.seven_day.points).toHaveLength(1);
     expect(orderedWindows(acc).map((w) => w.window.id)).toEqual(["five_hour", "seven_day"]);
+  });
+
+  it("always hides Claude's weekly window with extra usage and picks the 5h window for the gauge", () => {
+    let acc = emptyAccount("claude", "a1");
+    acc = mergeReport(acc, [win("seven_day_overage_included", 3, 10_080), win("seven_day", 5, 10_080), win("five_hour", 10)], 1000);
+    expect(orderedWindows(acc).map((w) => w.window.id)).toEqual(["five_hour", "seven_day"]);
+    expect(shortWindow(acc)?.window.id).toBe("five_hour");
+    expect(shortWindow(emptyAccount("codex", null))).toBeNull();
   });
 
   it("skips identical repeats close together and keeps series sorted when history arrives late", () => {

@@ -116,12 +116,12 @@ export default function App() {
           <Onboarding />
         ) : (
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            <UsageStrip />
             <ProjectSidebar />
             {filesPanelOpen && <Suspense fallback={<PanelLoading />}><FilesPanel /></Suspense>}
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1">
-                <main className="flex min-w-0 flex-1 flex-col">
+                <main className="relative flex min-w-0 flex-1 flex-col">
+                  <UsageStrip />
                   {previewOpen ? (
                     <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
                       <ResizablePanel defaultSize={45} minSize={25}>

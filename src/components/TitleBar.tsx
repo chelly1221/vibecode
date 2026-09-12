@@ -116,9 +116,10 @@ export function TitleBar({ showPanels = true }: { showPanels?: boolean }) {
         <div data-tauri-drag-region className="w-3" />
       )}
 
-      {/* Draggable middle; the logo + name are centred in the whole bar */}
+      {/* Draggable middle; the logo + name sit at the exact centre of the bar (absolute, so the
+          left toggles and right window controls do not push it off centre) */}
       <div data-tauri-drag-region className="min-w-0 flex-1" />
-      <div data-tauri-drag-region className="pointer-events-none flex shrink-0 items-center justify-center gap-2 px-4">
+      <div className="pointer-events-none absolute inset-y-0 left-1/2 flex -translate-x-1/2 items-center justify-center gap-2 px-4">
         <Logo className="size-4" />
         <span className="text-sm font-semibold tracking-tight">Vibecoder</span>
       </div>

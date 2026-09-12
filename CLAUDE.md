@@ -68,8 +68,10 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
   `{utilization 0..1, resetsAt}`) on every API response of a session; Codex app-server sends `account/rateLimits/updated` (account-wide,
   no threadId → `CodexHost` fans it out to every session) and answers `account/rateLimits/read`. Both become `SessionEvent::RateLimits`;
   `SessionManager` fills in the account id and stores rows in `usage_samples` (`crates/core/src/usage.rs`, commands `usage_*`).
-  UI: `src/stores/usage.ts` (keyed `provider:accountId`), `src/features/usage/`: `UsageStrip` = always-visible vertical bars on the
-  window's left edge (account in use first), click → detail panel (`UsagePanel`, Ctrl+5 / title bar "사용량") with the time-series graph.
+  UI: `src/stores/usage.ts` (keyed `provider:accountId`; `orderedWindows` always drops `seven_day_overage_included`, Claude's weekly
+  window with paid extra usage), `src/features/usage/`: `UsageStrip` = one transparent 5h gauge of the account in use, floating over the
+  left edge of the session area (`<main>` in `App.tsx`), click → detail panel (`UsagePanel`, Ctrl+5 / title bar "사용량") with the 7d
+  window and the time-series graph.
   There is no headless usage query for Claude; values refresh while a session works.
 - "새 대화" starts immediately with the project defaults (`src/features/chat/quickSession.ts`, reuses `firstSessionConfig`); a missing
   account opens the project account picker (`useAppStore.accountsDialogProjectId`). `NewSessionDialog` stays behind "다른 AI·설정으로 새 대화…".

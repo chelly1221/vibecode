@@ -81,10 +81,21 @@ export function mergeSamples(acc: AccountUsage, samples: UsageSample[]): Account
   return out;
 }
 
-/** Windows of an account in a stable display order (short window first). */
+/** Windows never shown anywhere: Claude's weekly window recomputed with the "extra usage" budget
+ *  duplicates the plain weekly window for everyone who has not enabled paid extra usage. */
+export const HIDDEN_WINDOW_IDS: ReadonlySet<string> = new Set(["seven_day_overage_included"]);
+
+/** Windows of an account in a stable display order (short window first), hidden ones dropped. */
 export function orderedWindows(acc: AccountUsage): WindowUsage[] {
   const rank = (w: WindowUsage) => w.window.window_minutes ?? (w.window.id === "five_hour" || w.window.id === "primary" ? 300 : 10_080);
-  return Object.values(acc.windows).sort((a, b) => rank(a) - rank(b) || a.window.id.localeCompare(b.window.id));
+  return Object.values(acc.windows)
+    .filter((w) => !HIDDEN_WINDOW_IDS.has(w.window.id))
+    .sort((a, b) => rank(a) - rank(b) || a.window.id.localeCompare(b.window.id));
+}
+
+/** The short (5-hour) window of an account, i.e. the first in display order. */
+export function shortWindow(acc: AccountUsage): WindowUsage | null {
+  return orderedWindows(acc)[0] ?? null;
 }
 
 interface UsageStore {
