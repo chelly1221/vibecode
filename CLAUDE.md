@@ -63,6 +63,33 @@ This repo is developed from WSL but compiled with the Windows toolchain so the r
   git panel/checkpoints need `git.exe`. Integration tests (`*_native.rs`) fall back to the default Git path when `git` is not
   on the test process's PATH.
 
+## Usage graph, quick sessions, auto commit, export
+- Subscription usage ("남은 사용량"): Claude Code emits `rate_limit_event` (`rate_limit_info.unifiedWindows.{five_hour,seven_day}` =
+  `{utilization 0..1, resetsAt}`) on every API response of a session; Codex app-server sends `account/rateLimits/updated` (account-wide,
+  no threadId → `CodexHost` fans it out to every session) and answers `account/rateLimits/read`. Both become `SessionEvent::RateLimits`;
+  `SessionManager` fills in the account id and stores rows in `usage_samples` (`crates/core/src/usage.rs`, commands `usage_*`).
+  UI: `src/stores/usage.ts` (keyed `provider:accountId`), `src/features/usage/`: `UsageStrip` = always-visible vertical bars on the
+  window's left edge (account in use first), click → detail panel (`UsagePanel`, Ctrl+5 / title bar "사용량") with the time-series graph.
+  There is no headless usage query for Claude; values refresh while a session works.
+- "새 대화" starts immediately with the project defaults (`src/features/chat/quickSession.ts`, reuses `firstSessionConfig`); a missing
+  account opens the project account picker (`useAppStore.accountsDialogProjectId`). `NewSessionDialog` stays behind "다른 AI·설정으로 새 대화…".
+- Tool cards in the transcript are collapsed by default (`ToolCard.tsx`).
+- Auto commit/push after every turn: `AutoGit` (off | commit | commit_push) — `AppSettings.auto_git` is the default, `ProjectRecord.auto_git`
+  overrides. `crates/core/src/git/auto.rs` runs after `TurnEnd` (skipped for interrupted turns, serialized per project via
+  `AppContext::auto_git_lock`), commit subject = first line of the user's request, outcome = `SessionEvent::AutoGit` → persisted
+  `{subtype:"auto_git"}` → `AutoGitMarker`. Manager-originated events go through `SessionManager::emit` (`senders` map).
+- "프로그램 내보내기": `[stack.export]` in `stacks.toml` (`build_command` with `{name}`, `artifacts` globs, `format` zip|file, `extension`);
+  `crates/core/src/projects/export.rs` builds through the backend shell, collects with `glob`, packages with the `zip` crate
+  (a single matched directory is flattened to the zip root). Command `projects_export` streams `ExportEvent`s → `ExportDialog.tsx`
+  (project menu). Stacks without a recipe show an explanation instead.
+
+- "새 빌드 적용" (title bar 더 보기 / 설정 > 정보): `crates/core/src/selfbuild.rs`. Installed app: `npm run tauri build -- --no-bundle`
+  runs in the source checkout (`AppSettings.dev_repo_path`, else a registered project that is this app, else `C:\code\vibecode`)
+  while the app keeps running; on success a detached PowerShell script (`%TEMP%\vibecoder-apply\apply.ps1`, log `apply.log`)
+  waits for the pid, copies `target\release\Vibecoder.exe` over the running exe and starts it (`self_build_apply` shuts core
+  down and exits). Running from `target\release` itself → the script builds after exit in a visible console. Frontend state
+  is `src/stores/selfBuild.ts` (5 s countdown after a successful build), dialog `src/features/settings/ApplyBuildDialog.tsx`.
+
 ## Project accounts
 - AI work MUST use the installed native Claude Code / Codex CLI and their subscription login. Do not introduce direct AI API calls or API-key login UI.
 - `crates/core/src/accounts.rs` stores named profile metadata and project/session account assignments in the local SQLite database. GitHub tokens use profile-specific Windows Credential Manager entries.

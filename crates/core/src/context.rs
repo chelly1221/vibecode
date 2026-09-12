@@ -30,6 +30,8 @@ pub struct AppContext {
     pub preview: Arc<DevServerManager>,
     /// Keeps CLAUDE.md / AGENTS.md identical in every registered project.
     pub docs_sync: crate::projects::docs_sync::DocsWatcher,
+    /// One automatic commit per project at a time (see `git::auto`).
+    auto_git_locks: tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl AppContext {
@@ -62,6 +64,7 @@ impl AppContext {
             account_changes: tokio::sync::Mutex::new(()),
             preview: Arc::new(DevServerManager::new()),
             docs_sync,
+            auto_git_locks: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         }))
     }
 
@@ -84,6 +87,25 @@ impl AppContext {
 
     pub async fn account_host(&self, key: &str) -> Arc<CodexHost> {
         self.account_hosts.lock().await.entry(key.to_string()).or_insert_with(|| Arc::new(CodexHost::new())).clone()
+    }
+
+    /// A running app-server whose environment includes the given Codex account, if any.
+    pub async fn running_account_host(&self, account_id: &str) -> Option<Arc<CodexHost>> {
+        let key = format!("Codex:{account_id};");
+        let hosts = self.account_hosts.lock().await;
+        let mut candidates: Vec<Arc<CodexHost>> = hosts.iter().filter(|(k, _)| k.contains(&key)).map(|(_, h)| h.clone()).collect();
+        drop(hosts);
+        for h in candidates.drain(..) {
+            if h.is_running().await {
+                return Some(h);
+            }
+        }
+        None
+    }
+
+    /// Per-project lock serialising automatic commits.
+    pub async fn auto_git_lock(&self, project_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.auto_git_locks.lock().await.entry(project_id.to_string()).or_default().clone()
     }
 
     pub async fn stop_account_hosts(&self, id: &str) {

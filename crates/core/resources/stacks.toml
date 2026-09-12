@@ -4,6 +4,8 @@
 # scaffold_cmd runs in the parent directory; {name} is replaced by the project name.
 #   output must be a Windows program (see core::toolchain). Applied for windows / cross_desktop targets only.
 # no shell operators (&&, |, redirects), single command only.
+# [stack.export] (optional) = "내보내기": build_command runs in the project dir ({name} = folder name),
+#   artifacts are globs relative to the project dir, format zip|file, extension of the exported file.
 
 # ---------------------------------------------------------------- desktop
 [[stack]]
@@ -28,6 +30,14 @@ agent_notes = """
 - IPC는 `#[tauri::command]`로 노출하고 프론트에서 `invoke()`로 호출. 파일/프로세스 접근은 Rust 쪽에서.
 """
 
+[stack.export]
+label = "Windows 실행 파일 (portable zip)"
+build_command = "npm run tauri build -- --no-bundle"
+artifacts = ["src-tauri/target/release/*.exe"]
+format = "zip"
+extension = "zip"
+note = "실행 파일만 담습니다. 실행할 PC에 WebView2 런타임(Windows 10/11 기본 포함)이 필요합니다. 첫 빌드는 몇 분 걸릴 수 있어요."
+
 [[stack]]
 id = "dotnet-wpf"
 name = ".NET 8 WPF (C#)"
@@ -47,6 +57,14 @@ agent_notes = """
 - 배포: `dotnet publish -c Release -r win-x64 --self-contained`
 - MVVM 패턴(CommunityToolkit.Mvvm 권장)으로 View와 로직 분리. WinUI 3로 가려면 `dotnet new install Microsoft.WindowsAppSDK.Templates` 후 `dotnet new winui`.
 """
+
+[stack.export]
+label = "Windows 실행 파일 (단일 exe, portable zip)"
+build_command = "dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish"
+artifacts = ["publish"]
+format = "zip"
+extension = "zip"
+note = ".NET 런타임을 포함한 자체 실행 파일이라 다른 PC에서도 바로 실행됩니다."
 
 [[stack]]
 id = "electron-vite"
@@ -68,6 +86,14 @@ agent_notes = """
 - main(Node) / preload / renderer(React) 3계층 구조. renderer에서 Node API 직접 접근 금지, preload의 contextBridge로 노출.
 """
 
+[stack.export]
+label = "Windows 실행 폴더 (portable zip)"
+build_command = "npm run build:win"
+artifacts = ["dist/win-unpacked"]
+format = "zip"
+extension = "zip"
+note = "설치 없이 압축을 풀고 exe를 실행하는 형태입니다. Chromium이 포함되어 100MB 이상입니다."
+
 [[stack]]
 id = "flutter-desktop"
 dev_command = "flutter run -d web-server --web-port 8080"
@@ -88,6 +114,14 @@ agent_notes = """
 - 빌드: `flutter build windows`
 - 상태 관리는 Riverpod 또는 Provider 중 하나로 통일.
 """
+
+[stack.export]
+label = "Windows 실행 폴더 (portable zip)"
+build_command = "flutter build windows --release"
+artifacts = ["build/windows/x64/runner/Release"]
+format = "zip"
+extension = "zip"
+note = "Visual C++ 재배포 패키지가 설치된 PC에서 실행됩니다."
 
 # ---------------------------------------------------------------- web
 [[stack]]
@@ -151,6 +185,14 @@ agent_notes = """
 - 라우팅은 react-router, 서버 상태는 TanStack Query 권장. 스타일은 Tailwind.
 """
 
+[stack.export]
+label = "정적 웹사이트 파일 (zip)"
+build_command = "npm run build"
+artifacts = ["dist"]
+format = "zip"
+extension = "zip"
+note = "압축을 풀어 아무 정적 호스팅(GitHub Pages, S3 등)에 올리면 됩니다."
+
 [[stack]]
 id = "astro"
 dev_command = "npm run dev"
@@ -170,6 +212,14 @@ agent_notes = """
 - 빌드/검사: `npm run build` / `npx astro check`
 - 콘텐츠는 `src/content/` 컬렉션으로 관리하고 스키마(zod)를 정의.
 """
+
+[stack.export]
+label = "정적 웹사이트 파일 (zip)"
+build_command = "npm run build"
+artifacts = ["dist"]
+format = "zip"
+extension = "zip"
+note = "압축을 풀어 아무 정적 호스팅에 올리면 됩니다."
 
 # ---------------------------------------------------------------- api / server
 [[stack]]
@@ -254,6 +304,13 @@ agent_notes = """
 - 라우터는 모듈별 `Router`를 `merge`/`nest`로 조합. 상태는 `State<Arc<AppState>>`.
 """
 
+[stack.export]
+label = "서버 실행 파일 (portable zip)"
+build_command = "cargo build --release"
+artifacts = ["target/release/*.exe"]
+format = "zip"
+extension = "zip"
+
 [[stack]]
 id = "spring-boot"
 name = "Spring Boot (Kotlin/Java)"
@@ -292,6 +349,13 @@ agent_notes = """
 - Minimal API 또는 Controller 중 하나로 통일. DTO는 record 타입.
 """
 
+[stack.export]
+label = "서버 실행 폴더 (self-contained, zip)"
+build_command = "dotnet publish -c Release -r win-x64 --self-contained true -o publish"
+artifacts = ["publish"]
+format = "zip"
+extension = "zip"
+
 # ---------------------------------------------------------------- mobile
 [[stack]]
 id = "flutter-mobile"
@@ -313,6 +377,14 @@ agent_notes = """
 - 빌드: `flutter build apk` / `flutter build ios`(macOS)
 - 상태 관리는 Riverpod로 통일. 화면은 `lib/features/<name>/`.
 """
+
+[stack.export]
+label = "Android 설치 파일 (APK)"
+build_command = "flutter build apk --release"
+artifacts = ["build/app/outputs/flutter-apk/app-release.apk"]
+format = "file"
+extension = "apk"
+note = "Android SDK가 설치되어 있어야 합니다. iOS 빌드는 macOS에서만 가능합니다."
 
 [[stack]]
 id = "expo"
@@ -390,6 +462,13 @@ agent_notes = """
 - 인자 파싱은 clap derive. 오류는 anyhow/thiserror.
 """
 
+[stack.export]
+label = "Windows 실행 파일 (portable zip)"
+build_command = "cargo build --release"
+artifacts = ["target/release/*.exe"]
+format = "zip"
+extension = "zip"
+
 [[stack]]
 id = "go-cli"
 name = "Go CLI (cobra)"
@@ -409,6 +488,13 @@ agent_notes = """
 - 테스트: `go test ./...`
 """
 
+[stack.export]
+label = "Windows 실행 파일 (portable zip)"
+build_command = "go build -o bin/ ."
+artifacts = ["bin/*.exe"]
+format = "zip"
+extension = "zip"
+
 [[stack]]
 id = "python-typer"
 name = "Python CLI (typer, uv)"
@@ -427,6 +513,14 @@ agent_notes = """
 - 테스트: `uv run pytest`
 - 린트/포맷: `uv run ruff check .` / `uv run ruff format .`
 """
+
+[stack.export]
+label = "Windows 실행 파일 (PyInstaller, portable zip)"
+build_command = "uvx pyinstaller --noconfirm --clean --onefile --name {name} main.py"
+artifacts = ["dist/*.exe"]
+format = "zip"
+extension = "zip"
+note = "PyInstaller로 Python 런타임을 포함한 단일 exe를 만듭니다. 진입 파일은 main.py 입니다."
 
 # ---------------------------------------------------------------- script / automation
 [[stack]]
@@ -449,6 +543,14 @@ agent_notes = """
 - 스크립트가 커지면 `src/<pkg>/`로 패키지화.
 """
 
+[stack.export]
+label = "Windows 실행 파일 (PyInstaller, portable zip)"
+build_command = "uvx pyinstaller --noconfirm --clean --onefile --name {name} main.py"
+artifacts = ["dist/*.exe"]
+format = "zip"
+extension = "zip"
+note = "PyInstaller로 Python 런타임을 포함한 단일 exe를 만듭니다. 진입 파일은 main.py 입니다."
+
 [[stack]]
 id = "powershell"
 name = "PowerShell 스크립트"
@@ -465,6 +567,12 @@ agent_notes = """
 - 테스트: Pester (`Invoke-Pester`)
 - 함수는 `Verb-Noun` 명명, `[CmdletBinding()]`과 매개변수 검증 사용. `Set-StrictMode -Version Latest`.
 """
+
+[stack.export]
+label = "스크립트 묶음 (zip)"
+artifacts = ["*.ps1", "*.psm1", "*.psd1"]
+format = "zip"
+extension = "zip"
 
 # ---------------------------------------------------------------- game
 [[stack]]
@@ -519,3 +627,11 @@ agent_notes = """
 - 테스트: `cargo test`
 - 시스템/컴포넌트/리소스로 분리, 플러그인 단위로 모듈화.
 """
+
+[stack.export]
+label = "Windows 실행 폴더 (portable zip)"
+build_command = "cargo build --release"
+artifacts = ["target/release/*.exe", "assets"]
+format = "zip"
+extension = "zip"
+note = "실행 파일과 assets 폴더를 함께 담습니다."

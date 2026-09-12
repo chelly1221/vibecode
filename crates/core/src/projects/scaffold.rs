@@ -225,6 +225,7 @@ async fn create_inner(ctx: Arc<AppContext>, req: CreateProjectRequest, rep: &Rep
         default_model: req.default_model.clone(),
         default_effort: req.default_effort,
         default_permission: req.default_permission,
+        auto_git: None,
         created_at: now,
         last_opened_at: now,
     };
@@ -419,6 +420,7 @@ fn open_existing_inner(ctx: &AppContext, path: &str, name: Option<&str>) -> Resu
         default_model: None,
         default_effort: None,
         default_permission: None,
+        auto_git: None,
         created_at: now,
         last_opened_at: now,
     };

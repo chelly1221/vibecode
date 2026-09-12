@@ -70,7 +70,16 @@ mod tests {
                     assert!(!cmd.contains(op), "{} scaffold_cmd uses shell operator {op}", s.id);
                 }
             }
+            if let Some(e) = &s.export {
+                assert!(!e.label.is_empty() && !e.artifacts.is_empty(), "{} export incomplete", s.id);
+                assert!(!e.extension.starts_with('.') && !e.extension.is_empty(), "{} export extension", s.id);
+                assert!(e.artifacts.iter().all(|a| !a.starts_with('/') && !a.contains("..") && !a.contains('\\')), "{} export artifacts must be relative forward-slash globs", s.id);
+                if e.format == crate::types::ExportFormat::File {
+                    assert_eq!(e.artifacts.len(), 1, "{} file export needs exactly one pattern", s.id);
+                }
+            }
         }
+        assert!(stacks.iter().filter(|s| s.export.is_some()).count() >= 10, "export recipes missing");
     }
 
     #[test]

@@ -9,9 +9,11 @@ pub mod preview;
 pub mod github;
 pub mod projects;
 pub mod pty;
+pub mod selfbuild;
 pub mod sessions;
 pub mod settings;
 pub mod tools;
+pub mod usage;
 
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -48,6 +50,14 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         projects::projects_generate_agent_docs,
         projects::projects_sync_agent_docs,
         projects::projects_ai_plan,
+        projects::projects_export_name,
+        projects::projects_export,
+        usage::usage_history,
+        usage::usage_latest,
+        usage::usage_refresh,
+        selfbuild::self_build_info,
+        selfbuild::self_build_run,
+        selfbuild::self_build_apply,
         sessions::session_start,
         sessions::session_send,
         sessions::session_interrupt,

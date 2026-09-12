@@ -4,6 +4,7 @@ import { Markdown } from "@/lib/markdown";
 import type { QuestionAnswer } from "@/lib/ipc";
 import type { ChatItem, SubagentState } from "@/stores/sessions";
 import { cn } from "@/lib/utils";
+import { AutoGitMarker } from "./AutoGitMarker";
 import { CheckpointMarker } from "./CheckpointMarker";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./QuestionCard";
@@ -67,6 +68,8 @@ export const MessageItem = memo(function MessageItem({ item, isLast, running, on
       );
     case "checkpoint":
       return <CheckpointMarker item={item} />;
+    case "auto_git":
+      return <AutoGitMarker item={item} />;
     case "system":
       return <TurnDivider item={item} />;
     default:
@@ -75,5 +78,5 @@ export const MessageItem = memo(function MessageItem({ item, isLast, running, on
 });
 
 export function itemSpacing(item: ChatItem): string {
-  return cn(item.type === "system" || item.type === "checkpoint" ? "my-0" : "my-2");
+  return cn(item.type === "system" || item.type === "checkpoint" || item.type === "auto_git" ? "my-0" : "my-2");
 }

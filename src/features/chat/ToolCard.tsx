@@ -172,7 +172,9 @@ export function ToolCard({ item, subagents }: { item: ToolItem; subagents?: Reco
   const category = categorize(item.name);
   const summary = summarize(item.name, item.input);
   const sub = category === "subagent" && subagents ? subagents[item.toolId] : undefined;
-  const [open, setOpen] = useState(category === "edit" || category === "command" || category === "todo" || (category === "subagent" && !item.done));
+  // Every tool call starts collapsed: the transcript stays a readable list of what happened and
+  // the details (commands, diffs, outputs) open on demand.
+  const [open, setOpen] = useState(false);
   const [showSub, setShowSub] = useState(true);
   const input = rec(item.input);
 

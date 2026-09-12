@@ -12,6 +12,7 @@ import { ProjectSidebar } from "@/features/projects/ProjectSidebar";
 import { ProjectWizard } from "@/features/projects/ProjectWizard";
 import { AgentDocsPrompt } from "@/features/projects/AgentDocsPrompt";
 import { ChatView } from "@/features/chat/ChatView";
+import { UsageStrip } from "@/features/usage/UsageStrip";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 
 const FilesPanel = lazy(() => import("@/features/files/FilesPanel").then((m) => ({ default: m.FilesPanel })));
@@ -19,6 +20,8 @@ const GitPanel = lazy(() => import("@/features/git/GitPanel").then((m) => ({ def
 const TerminalPanel = lazy(() => import("@/features/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
 const SettingsDialog = lazy(() => import("@/features/settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
 const PreviewPane = lazy(() => import("@/features/preview/PreviewPane").then((m) => ({ default: m.PreviewPane })));
+const UsagePanel = lazy(() => import("@/features/usage/UsagePanel").then((m) => ({ default: m.UsagePanel })));
+const ApplyBuildDialog = lazy(() => import("@/features/settings/ApplyBuildDialog").then((m) => ({ default: m.ApplyBuildDialog })));
 
 export default function App() {
   const settingsOpen = useAppStore((s) => s.settingsOpen);
@@ -29,6 +32,8 @@ export default function App() {
   const previewOpen = useAppStore((s) => s.previewOpen);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
+  const usagePanelOpen = useAppStore((s) => s.usagePanelOpen);
+  const applyBuildOpen = useAppStore((s) => s.applyBuildOpen);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -50,7 +55,7 @@ export default function App() {
     document.documentElement.classList.add("dark");
   }, []);
 
-  // Panel shortcuts: Ctrl+1 git, Ctrl+2 terminal, Ctrl+3 files, Ctrl+4 preview, Ctrl+, settings.
+  // Panel shortcuts: Ctrl+1 git, Ctrl+2 terminal, Ctrl+3 files, Ctrl+4 preview, Ctrl+5 usage, Ctrl+, settings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -62,6 +67,7 @@ export default function App() {
         "2": () => st.setTerminalOpen(!st.terminalOpen),
         "3": () => st.setFilesPanelOpen(!st.filesPanelOpen),
         "4": () => st.setPreviewOpen(!st.previewOpen),
+        "5": () => st.setUsagePanelOpen(!st.usagePanelOpen),
         ",": () => st.setSettingsOpen(true),
       };
       const fn = map[e.key];
@@ -110,6 +116,7 @@ export default function App() {
           <Onboarding />
         ) : (
           <div className="flex min-h-0 flex-1 overflow-hidden">
+            <UsageStrip />
             <ProjectSidebar />
             {filesPanelOpen && <Suspense fallback={<PanelLoading />}><FilesPanel /></Suspense>}
             <div className="flex min-w-0 flex-1 flex-col">
@@ -136,6 +143,11 @@ export default function App() {
                     <Suspense fallback={<PanelLoading />}><GitPanel /></Suspense>
                   </aside>
                 )}
+                {usagePanelOpen && (
+                  <aside className="w-[min(26rem,40vw)] shrink-0 border-l" aria-label="남은 사용량">
+                    <Suspense fallback={<PanelLoading />}><UsagePanel /></Suspense>
+                  </aside>
+                )}
               </div>
               {terminalOpen && (
                 <div className="h-64 shrink-0 border-t">
@@ -150,6 +162,7 @@ export default function App() {
         <>
           <ProjectWizard />
           {settingsOpen && <Suspense fallback={null}><SettingsDialog /></Suspense>}
+          {applyBuildOpen && <Suspense fallback={null}><ApplyBuildDialog /></Suspense>}
           <AgentDocsPrompt />
         </>
       )}

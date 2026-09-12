@@ -7,6 +7,7 @@ import {
   FolderOpen,
   House,
   MoreHorizontal,
+  Package,
   Pencil,
   Plus,
   Trash2,
@@ -28,12 +29,13 @@ import { cn } from "@/lib/utils";
 import { ipc, type ProjectRecord } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ExportDialog } from "./ExportDialog";
 import { SessionList } from "./SessionList";
 import { ProjectEditDialog } from "./ProjectEditDialog";
 import { formatRelative } from "./format";
 
 
-function ProjectItem({ project, selected, onSelect, onRemove, onAccounts, onEdit }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void; onAccounts: () => void; onEdit: () => void }) {
+function ProjectItem({ project, selected, onSelect, onRemove, onAccounts, onEdit, onExport }: { project: ProjectRecord; selected: boolean; onSelect: () => void; onRemove: () => void; onAccounts: () => void; onEdit: () => void; onExport: () => void }) {
   return (
     <div className="group/project relative">
       <Tooltip>
@@ -71,6 +73,7 @@ function ProjectItem({ project, selected, onSelect, onRemove, onAccounts, onEdit
         <DropdownMenuContent align="end" className="w-max min-w-48 whitespace-nowrap">
           <DropdownMenuItem onClick={onEdit}><Pencil /> 프로젝트 수정</DropdownMenuItem>
           <DropdownMenuItem onClick={onAccounts}>사용할 계정 선택</DropdownMenuItem>
+          <DropdownMenuItem onClick={onExport}><Package /> 프로그램 내보내기</DropdownMenuItem>
           <DropdownMenuItem onClick={() => openPath(project.path).catch((e) => toast.error(`열기 실패: ${e}`))}>
             <FolderOpen /> 탐색기에서 열기
           </DropdownMenuItem>
@@ -96,9 +99,12 @@ export function ProjectSidebar() {
   const selectProject = useAppStore((s) => s.selectProject);
   const loadProjects = useAppStore((s) => s.loadProjects);
   const setWizardOpen = useAppStore((s) => s.setWizardOpen);
-  const [accountProject, setAccountProject] = useState<ProjectRecord | null>(null);
+  const accountsDialogProjectId = useAppStore((s) => s.accountsDialogProjectId);
+  const setAccountsDialogProjectId = useAppStore((s) => s.setAccountsDialogProjectId);
+  const accountProject = projects.find((p) => p.id === accountsDialogProjectId) ?? null;
   const [pendingRemove, setPendingRemove] = useState<ProjectRecord | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectRecord | null>(null);
+  const [exportProject, setExportProject] = useState<ProjectRecord | null>(null);
 
   const openExisting = async () => {
     try {
@@ -181,8 +187,9 @@ export function ProjectSidebar() {
                   selected={p.id === activeProjectId}
                   onSelect={() => selectProject(p.id)}
                   onRemove={() => setPendingRemove(p)}
-                  onAccounts={() => setAccountProject(p)}
+                  onAccounts={() => setAccountsDialogProjectId(p.id)}
                   onEdit={() => setEditingProject(p)}
+                  onExport={() => setExportProject(p)}
                 />
                 {p.id === activeProjectId && <SessionList projectId={p.id} />}
               </li>
@@ -192,8 +199,9 @@ export function ProjectSidebar() {
       </ScrollArea>
 
 
-      {accountProject && <ProjectAccountsDialog key={accountProject.id} project={accountProject} onClose={() => setAccountProject(null)} />}
+      {accountProject && <ProjectAccountsDialog key={accountProject.id} project={accountProject} onClose={() => setAccountsDialogProjectId(null)} />}
       {editingProject && <ProjectEditDialog key={editingProject.id} project={editingProject} onClose={() => setEditingProject(null)} />}
+      {exportProject && <ExportDialog key={exportProject.id} project={exportProject} onClose={() => setExportProject(null)} />}
       <ConfirmDialog
         open={pendingRemove !== null}
         onOpenChange={(o) => !o && setPendingRemove(null)}

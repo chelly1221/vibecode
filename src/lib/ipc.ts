@@ -18,6 +18,12 @@ import type { SshKeyInfo } from "./bindings/SshKeyInfo";
 import type { StackRecommendRequest } from "./bindings/StackRecommendRequest";
 import type { StackRecommendation } from "./bindings/StackRecommendation";
 import type { AuthStatus } from "./bindings/AuthStatus";
+import type { AutoGit } from "./bindings/AutoGit";
+import type { ExportEvent } from "./bindings/ExportEvent";
+import type { RateLimitWindow } from "./bindings/RateLimitWindow";
+import type { SelfBuildInfo } from "./bindings/SelfBuildInfo";
+import type { StackExport } from "./bindings/StackExport";
+import type { UsageSample } from "./bindings/UsageSample";
 import type { CreateProjectRequest } from "./bindings/CreateProjectRequest";
 import type { GitBranch } from "./bindings/GitBranch";
 import type { GitCommit } from "./bindings/GitCommit";
@@ -123,6 +129,30 @@ export const ipc = {
     stacksAiRecommend: (req: StackRecommendRequest) => invoke<StackRecommendation[]>("stacks_ai_recommend", { req }),
     /** "Describe it in one line": the agent picks name, folder, target, type and stack. */
     aiPlan: (req: ProjectPlanRequest) => invoke<ProjectPlan>("projects_ai_plan", { req }),
+    /** Suggested file name for the export save dialog; null when the stack has no export recipe. */
+    exportName: (id: string) => invoke<string | null>("projects_export_name", { id }),
+    /** Build with the stack's export recipe and package the result at `dest`; streams ExportEvents, resolves with the written path. */
+    export: (id: string, dest: string, onEvent: (e: ExportEvent) => void) =>
+      invoke<string>("projects_export", { id, dest, onEvent: channel(onEvent) }),
+  },
+
+  selfBuild: {
+    /** Source checkout, running exe and build mode for "새 빌드 적용". */
+    info: () => invoke<SelfBuildInfo>("self_build_info"),
+    /** Build the app in `repo` while it keeps running; streams the log, resolves with the built exe path. */
+    run: (repo: string, onEvent: (e: ExportEvent) => void) => invoke<string>("self_build_run", { repo, onEvent: channel(onEvent) }),
+    /** Swap in `builtExe` (or build after exit when null) and quit; the script restarts the app. */
+    apply: (repo: string, builtExe: string | null) => invoke<string>("self_build_apply", { repo, builtExe }),
+  },
+
+  usage: {
+    /** Stored rate-limit samples of one account from the last `hours` hours (oldest first). */
+    history: (provider: Provider, accountId: string | null, hours?: number) =>
+      invoke<UsageSample[]>("usage_history", { provider, accountId, hours: hours ?? null }),
+    /** Newest sample of every known (provider, account, window). */
+    latest: () => invoke<UsageSample[]>("usage_latest"),
+    /** Ask the CLI for fresh values (Codex only; Claude reports while a session works). */
+    refresh: (provider: Provider, accountId: string | null) => invoke<RateLimitWindow[]>("usage_refresh", { provider, accountId }),
   },
 
   sessions: {
@@ -230,6 +260,12 @@ export type {
   ProjectPlanRequest,
   ProjectPlan,
   AuthStatus,
+  AutoGit,
+  ExportEvent,
+  RateLimitWindow,
+  SelfBuildInfo,
+  StackExport,
+  UsageSample,
   CreateProjectRequest,
   GitBranch,
   GitCommit,

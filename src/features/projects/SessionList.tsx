@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, ArchiveRestore, Download, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, Download, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { ipc, type SessionRecord } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
+import { startQuickSessionWithToast } from "@/features/chat/quickSession";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ProviderBadge } from "./ProviderBadge";
 import { formatRelative } from "./format";
@@ -96,9 +97,19 @@ export function SessionList({ projectId }: { projectId: string }) {
     <div className="my-0.5 ml-3 border-l border-primary/15 pl-1">
       <div className="flex h-7 items-center justify-between pr-1 pl-1.5">
         <span className="text-[11px] text-muted-foreground">대화{sessions && sessions.length > 0 && <span className="ml-1 tabular-nums opacity-70">{visible.length}</span>}</span>
-        <Button size="xs" variant="ghost" onClick={() => setNewSessionOpen(true)} title="새 대화">
-          <Plus /> 새 대화
-        </Button>
+        <span className="flex items-center">
+          <Button size="xs" variant="ghost" className="rounded-r-none" onClick={() => void startQuickSessionWithToast(projectId)} title="프로젝트 설정으로 바로 새 대화">
+            <Plus /> 새 대화
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon-xs" variant="ghost" className="rounded-l-none" aria-label="새 대화 옵션"><ChevronDown /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-max whitespace-nowrap">
+              <DropdownMenuItem onClick={() => setNewSessionOpen(true)}><SlidersHorizontal /> 다른 AI·설정으로 새 대화…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </span>
       </div>
       {(sessions?.length ?? 0) > 3 && (
         <div className="relative mb-1 pr-1">

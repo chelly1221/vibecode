@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use serde_json::{json, Value};
 
-use crate::types::{AgentQuestion, Effort, ModelInfo, PermissionDecision, PermissionKind, PermissionPreset, PlanStep, Provider, QuestionAnswer, QuestionOption, SessionEvent, Usage};
+use crate::types::{AgentQuestion, Effort, ModelInfo, PermissionDecision, PermissionKind, PermissionPreset, PlanStep, Provider, QuestionAnswer, QuestionOption, RateLimitWindow, SessionEvent, Usage};
 
 use super::rpc::id_key;
 
@@ -294,6 +294,39 @@ pub fn events_for_completed_item(state: &mut MapState, item: &Value) -> Vec<Sess
 }
 
 /// Translate one server notification into zero or more events.
+/// Subscription windows from an `account/rateLimits/updated` notification or an
+/// `account/rateLimits/read` response (`{ rateLimits: { primary, secondary, ... } }`, camelCase v2 keys;
+/// snake_case is accepted too). `primary` is the short window (5h), `secondary` the weekly one.
+pub fn rate_limit_windows(v: &Value) -> Vec<RateLimitWindow> {
+    let snap = v.get("rateLimits").or_else(|| v.get("rate_limits")).unwrap_or(v);
+    let mut out = Vec::new();
+    for id in ["primary", "secondary"] {
+        let Some(w) = snap.get(id).filter(|w| !w.is_null()) else { continue };
+        let Some(pct) = w.get("usedPercent").or_else(|| w.get("used_percent")).and_then(Value::as_f64) else { continue };
+        let minutes = w.get("windowDurationMins").or_else(|| w.get("window_minutes")).and_then(Value::as_i64);
+        out.push(RateLimitWindow {
+            id: id.into(),
+            label: window_label(minutes, id),
+            used_percent: (pct.clamp(0.0, 100.0) * 10.0).round() / 10.0,
+            resets_at: w.get("resetsAt").or_else(|| w.get("resets_at")).and_then(Value::as_i64),
+            window_minutes: minutes,
+        });
+    }
+    out
+}
+
+fn window_label(minutes: Option<i64>, id: &str) -> String {
+    match minutes {
+        Some(m) if m >= 1440 && m % 1440 == 0 => {
+            let days = m / 1440;
+            if days == 7 { "1주일".into() } else { format!("{days}일") }
+        }
+        Some(m) if m >= 60 && m % 60 == 0 => format!("{}시간", m / 60),
+        Some(m) if m > 0 => format!("{m}분"),
+        _ => if id == "primary" { "단기".into() } else { "장기".into() },
+    }
+}
+
 pub fn map_notification(state: &mut MapState, method: &str, params: &Value) -> Vec<SessionEvent> {
     let mut out = Vec::new();
     match method {
@@ -608,6 +641,8 @@ mod tests {
                 SessionEvent::QuestionResolved { .. } => "question_resolved",
                 SessionEvent::Subagent { .. } => "subagent",
                 SessionEvent::Checkpoint { .. } => "checkpoint",
+                SessionEvent::RateLimits { .. } => "rate_limits",
+                SessionEvent::AutoGit { .. } => "auto_git",
             })
             .collect()
     }
@@ -840,4 +875,15 @@ mod tests {
         assert_eq!(kinds(&evs), vec!["exited"]);
         assert!(st.closed);
     }
+
+    #[test]
+    fn rate_limit_snapshot_windows() {
+        let v = json!({ "rateLimits": { "limitId": "codex", "primary": { "usedPercent": 42.55, "windowDurationMins": 300, "resetsAt": 1800000000 }, "secondary": { "usedPercent": 7, "windowDurationMins": 10080, "resetsAt": 1800500000 }, "planType": "plus" } });
+        let w = rate_limit_windows(&v);
+        assert_eq!(w.len(), 2);
+        assert_eq!((w[0].id.as_str(), w[0].label.as_str(), w[0].used_percent, w[0].resets_at), ("primary", "5시간", 42.6, Some(1_800_000_000)));
+        assert_eq!((w[1].id.as_str(), w[1].label.as_str(), w[1].used_percent), ("secondary", "1주일", 7.0));
+        assert!(rate_limit_windows(&json!({ "rateLimits": { "primary": null } })).is_empty());
+    }
+
 }

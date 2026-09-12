@@ -119,6 +119,8 @@ fn kind(e: &SessionEvent) -> &'static str {
         SessionEvent::QuestionResolved { .. } => "question_resolved",
         SessionEvent::Subagent { .. } => "subagent",
         SessionEvent::Checkpoint { .. } => "checkpoint",
+        SessionEvent::RateLimits { .. } => "rate_limits",
+        SessionEvent::AutoGit { .. } => "auto_git",
     }
 }
 

@@ -1,4 +1,5 @@
 // Shared option lists / labels for settings-like UIs (onboarding, settings dialog).
+import type { AutoGit } from "@/lib/bindings/AutoGit";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
 import type { Provider } from "@/lib/bindings/Provider";
@@ -23,6 +24,16 @@ export const PERMISSION_OPTIONS: { value: PermissionPreset; label: string; descr
   { value: "auto_edit", label: "파일 수정 자동 승인", description: "파일 편집은 자동, 명령 실행은 확인" },
   { value: "full_auto", label: "AI에게 맡기기", description: "파일 수정과 프로그램 실행을 확인 없이 진행", danger: true },
 ];
+
+export const AUTO_GIT_OPTIONS: { value: AutoGit; label: string; description: string }[] = [
+  { value: "off", label: "사용 안 함", description: "변경 내역 패널에서 직접 저장" },
+  { value: "commit", label: "작업마다 자동 저장", description: "AI 작업이 끝나면 바뀐 파일을 버전으로 저장(커밋)" },
+  { value: "commit_push", label: "자동 저장 후 GitHub에 올리기", description: "저장하고 연결된 저장소에 바로 업로드(푸시)" },
+];
+
+export function autoGitLabel(v: AutoGit): string {
+  return AUTO_GIT_OPTIONS.find((o) => o.value === v)?.label ?? v;
+}
 
 export function providerLabel(p: Provider): string {
   return PROVIDER_OPTIONS.find((o) => o.value === p)?.label ?? p;

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::types::{PlanStep, SessionEvent, Usage};
+use crate::types::{PlanStep, Provider, RateLimitWindow, SessionEvent, Usage};
 
 /// Anything the parser extracts from one stdout line.
 #[derive(Debug, Clone)]
@@ -90,7 +90,15 @@ impl Parser {
                 let error = r.get("error").and_then(Value::as_str).map(|s| s.to_string());
                 vec![Parsed::ControlResponse { request_id, success, response: r.get("response").cloned().unwrap_or(Value::Null), error }]
             }
-            "control_cancel_request" | "rate_limit_event" | "keep_alive" => vec![Parsed::Ignore],
+            "rate_limit_event" => {
+                let windows = v.get("rate_limit_info").map(rate_limit_windows).unwrap_or_default();
+                if windows.is_empty() {
+                    vec![Parsed::Ignore]
+                } else {
+                    vec![Parsed::Event(SessionEvent::RateLimits { provider: Provider::Claude, account_id: None, windows, observed_at: chrono::Utc::now().timestamp() })]
+                }
+            }
+            "control_cancel_request" | "keep_alive" => vec![Parsed::Ignore],
             "error" => vec![Parsed::Event(SessionEvent::Error {
                 message: v.get("message").or_else(|| v.get("error")).map(value_to_string).unwrap_or_else(|| "unknown error".into()),
                 fatal: false,
@@ -283,6 +291,38 @@ impl Parser {
     }
 }
 
+/// Subscription windows from a `rate_limit_event`'s `rate_limit_info`. The CLI reports
+/// `unifiedWindows.{five_hour,seven_day,seven_day_overage_included}` as `{utilization: 0..1, resetsAt}`
+/// (what `/usage` shows); without it the top-level `utilization` + `rateLimitType` is used.
+pub fn rate_limit_windows(info: &Value) -> Vec<RateLimitWindow> {
+    const KNOWN: [(&str, &str, i64); 3] = [("five_hour", "5시간", 300), ("seven_day", "1주일", 10_080), ("seven_day_overage_included", "1주일 (추가 사용 포함)", 10_080)];
+    let mut out = Vec::new();
+    if let Some(uw) = info.get("unifiedWindows").and_then(Value::as_object) {
+        for (id, label, minutes) in KNOWN {
+            let Some(w) = uw.get(id) else { continue };
+            let Some(u) = w.get("utilization").and_then(Value::as_f64) else { continue };
+            out.push(RateLimitWindow {
+                id: id.into(),
+                label: label.into(),
+                used_percent: fraction_to_percent(u),
+                resets_at: w.get("resetsAt").or_else(|| w.get("resets_at")).and_then(Value::as_i64),
+                window_minutes: Some(minutes),
+            });
+        }
+    }
+    if out.is_empty() {
+        if let (Some(u), Some(t)) = (info.get("utilization").and_then(Value::as_f64), info.get("rateLimitType").and_then(Value::as_str)) {
+            let (label, minutes) = KNOWN.iter().find(|k| k.0 == t).map(|k| (k.1, Some(k.2))).unwrap_or((t, None));
+            out.push(RateLimitWindow { id: t.into(), label: label.into(), used_percent: fraction_to_percent(u), resets_at: info.get("resetsAt").and_then(Value::as_i64), window_minutes: minutes });
+        }
+    }
+    out
+}
+
+fn fraction_to_percent(u: f64) -> f64 {
+    ((u * 100.0).clamp(0.0, 100.0) * 10.0).round() / 10.0
+}
+
 pub fn parse_usage(u: &Value) -> Usage {
     Usage {
         input_tokens: u.get("input_tokens").and_then(Value::as_i64).unwrap_or(0),
@@ -459,6 +499,30 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert!(matches!(&out[0], Parsed::Event(SessionEvent::Error { message, .. }) if message.contains("error_max_turns")));
         assert!(matches!(&out[1], Parsed::Event(SessionEvent::TurnEnd { stop_reason: Some(s), .. }) if s == "error_max_turns"));
+    }
+
+    #[test]
+    fn rate_limit_event_becomes_windows() {
+        let mut p = Parser::new();
+        let line = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1800000000,"rateLimitType":"five_hour","utilization":0.37,"unifiedWindows":{"five_hour":{"utilization":0.37,"resetsAt":1800000000},"seven_day":{"utilization":0.121,"resetsAt":1800400000}}},"uuid":"u","session_id":"s"}"#;
+        let out = p.parse_line(line);
+        let Parsed::Event(SessionEvent::RateLimits { provider, account_id, windows, .. }) = &out[0] else { panic!("{out:?}") };
+        assert_eq!(*provider, Provider::Claude);
+        assert!(account_id.is_none());
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[0].id, "five_hour");
+        assert_eq!(windows[0].used_percent, 37.0);
+        assert_eq!(windows[0].resets_at, Some(1_800_000_000));
+        assert_eq!(windows[1].id, "seven_day");
+        assert_eq!(windows[1].used_percent, 12.1);
+        // Fallback without unifiedWindows.
+        let only_top = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.9}}"#;
+        let out = p.parse_line(only_top);
+        let Parsed::Event(SessionEvent::RateLimits { windows, .. }) = &out[0] else { panic!("{out:?}") };
+        assert_eq!(windows[0].id, "seven_day");
+        assert_eq!(windows[0].used_percent, 90.0);
+        // Nothing usable → ignored.
+        assert!(matches!(&p.parse_line(r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}"#)[0], Parsed::Ignore));
     }
 
     #[test]

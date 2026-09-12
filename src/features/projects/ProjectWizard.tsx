@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useAppStore } from "@/stores/app";
 import { useWizardStore } from "@/stores/wizard";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { startQuickSessionWithToast } from "@/features/chat/quickSession";
 import { buildFirstPrompt, startFirstSession } from "./firstSession";
 import { StepIndicator } from "./StepIndicator";
 import { PlanSummary } from "./steps/PlanSummary";
@@ -28,8 +29,6 @@ export function ProjectWizard() {
   const settings = useAppStore((s) => s.settings);
   const loadProjects = useAppStore((s) => s.loadProjects);
   const selectProject = useAppStore((s) => s.selectProject);
-  const setNewSessionOpen = useAppStore((s) => s.setNewSessionOpen);
-
   const step = useWizardStore((s) => s.step);
   const mode = useWizardStore((s) => s.mode);
   const quickView = useWizardStore((s) => s.quickView);
@@ -116,7 +115,8 @@ export function ProjectWizard() {
 
   const startSession = () => {
     close();
-    setNewSessionOpen(true);
+    const id = useWizardStore.getState().scaffold.status === "done" ? useWizardStore.getState().scaffold.project?.id : undefined;
+    if (id) void startQuickSessionWithToast(id);
   };
 
   const toAdvanced = () => {

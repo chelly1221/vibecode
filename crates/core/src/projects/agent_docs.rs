@@ -100,6 +100,7 @@ mod tests {
             default_model: None,
             default_effort: None,
             default_permission: None,
+            auto_git: None,
             created_at: Utc::now(),
             last_opened_at: Utc::now(),
         }

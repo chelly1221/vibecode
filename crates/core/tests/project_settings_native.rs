@@ -20,6 +20,7 @@ async fn git(ctx: &AppContext, path: &Path, args: &[&str]) -> String {
 
 fn request(project: &ProjectRecord, accounts: ProjectAccounts) -> ProjectSettingsUpdate {
     ProjectSettingsUpdate {
+        auto_git: None,
         name: project.name.clone(), accounts, default_provider: Provider::Codex,
         default_model: Some("test-codex-model".into()), default_effort: Some(Effort::High),
         default_permission: PermissionPreset::AutoEdit, update_remote: true,

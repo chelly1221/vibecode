@@ -43,6 +43,7 @@ fn register(ctx: &AppContext, id: &str, path: &Path) {
             default_model: None,
             default_effort: None,
             default_permission: None,
+            auto_git: None,
             created_at: now,
             last_opened_at: now,
         })

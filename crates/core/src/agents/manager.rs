@@ -8,7 +8,11 @@
 //!               `{kind:"tool", id, name, input, output, is_error, subagent?}` items, capped)
 //! - permission: `{ "request_id", "kind", "title", "detail", "decision" }` (on PermissionResolved)
 //! - system:     `{ "subtype": "turn_end", "cost_usd", "usage", "duration_ms", "stop_reason" }`,
-//!               `{ "subtype": "error", "message" }`, `{ "subtype": "init", "model", "external_ref" }`
+//!               `{ "subtype": "error", "message" }`, `{ "subtype": "init", "model", "external_ref" }`,
+//!               `{ "subtype": "auto_git", "ok", "message", "commit", "pushed" }` (see `git::auto`)
+//!
+//! `SessionEvent::RateLimits` is not persisted as a message: the manager fills in the account id and
+//! stores the windows in `usage_samples` (the usage graph), then forwards the event.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,7 +26,7 @@ use tokio::sync::RwLock;
 use super::{AgentSession, StartArgs};
 use crate::context::AppContext;
 use crate::error::{CoreError, Result};
-use crate::types::{MessageKind, PermissionReply, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
+use crate::types::{MessageKind, PermissionReply, ProjectAccounts, Provider, QuestionAnswer, SessionConfig, SessionConfigPatch, SessionEvent, SessionRecord};
 
 pub const DEFAULT_TITLE: &str = "새 세션";
 
@@ -101,7 +105,7 @@ impl SessionManager {
             cwd: PathBuf::from(&project.path),
             backend: backend.clone(),
             bin: bin.clone(),
-            events: adapter_tx,
+            events: adapter_tx.clone(),
             mcp_servers,
         };
         let session: Arc<dyn AgentSession> = match config.provider {
@@ -116,11 +120,13 @@ impl SessionManager {
             }
         };
         self.live.write().await.insert(record.id.clone(), session);
+        // Manager-originated events (checkpoints, auto commits) enter the same pipeline as adapter events.
+        self.senders.write().await.insert(record.id.clone(), adapter_tx);
         record.last_used_at = Utc::now();
 
         let ctx2 = ctx.clone();
         let rec2 = record.clone();
-        tokio::spawn(async move { persist_and_forward(ctx2, rec2, adapter_rx, ui_tx).await });
+        tokio::spawn(async move { persist_and_forward(ctx2, rec2, selected, adapter_rx, ui_tx).await });
         Ok((record, ui_rx))
     }
 
@@ -192,6 +198,15 @@ impl SessionManager {
 
     pub(crate) async fn remove_live(&self, session_id: &str) {
         self.live.write().await.remove(session_id);
+        self.senders.write().await.remove(session_id);
+    }
+
+    /// Inject an event into a live session's pipeline (persisted, then forwarded to the UI).
+    pub async fn emit(&self, session_id: &str, ev: SessionEvent) -> bool {
+        match self.senders.read().await.get(session_id) {
+            Some(tx) => tx.send(ev).is_ok(),
+            None => false,
+        }
     }
 }
 
@@ -207,8 +222,10 @@ struct PendingPermission {
 }
 
 /// Tee task: persist what the UI needs to reconstruct the transcript, then forward.
-async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mut rx: UnboundedReceiver<SessionEvent>, ui: mpsc::UnboundedSender<SessionEvent>) {
+async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, accounts: ProjectAccounts, mut rx: UnboundedReceiver<SessionEvent>, ui: mpsc::UnboundedSender<SessionEvent>) {
     let sid = record.id.clone();
+    // Text of the latest user turn; the automatic commit after the turn uses it as the message.
+    let mut last_user_text = String::new();
     let mut tools: HashMap<String, PendingTool> = HashMap::new();
     let mut perms: HashMap<String, PendingPermission> = HashMap::new();
     // Subagent transcripts keyed by the spawning tool call id (nested subagents key by their own parent).
@@ -216,8 +233,16 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
     let mut sub_tools: HashMap<String, PendingTool> = HashMap::new();
     let mut init_logged = false;
     let db = &ctx.db;
-    while let Some(ev) = rx.recv().await {
+    while let Some(mut ev) = rx.recv().await {
         let mut dirty = false;
+        if let SessionEvent::RateLimits { provider, account_id, windows, observed_at } = &mut ev {
+            if account_id.is_none() {
+                *account_id = accounts.agent(*provider).map(String::from);
+            }
+            if let Err(e) = db.insert_usage_samples(*provider, account_id.as_deref(), windows, *observed_at) {
+                tracing::warn!("failed to persist usage sample for {sid}: {e}");
+            }
+        }
         match &ev {
             SessionEvent::Subagent { parent_tool_use_id, event } => {
                 match event.as_ref() {
@@ -251,6 +276,7 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
                     record.title = make_title(text);
                     dirty = true;
                 }
+                last_user_text = text.clone();
                 log(db, &sid, MessageKind::User, json!({ "text": text }));
             }
             SessionEvent::Text { text } => log(db, &sid, MessageKind::Assistant, json!({ "text": text })),
@@ -289,6 +315,15 @@ async fn persist_and_forward(ctx: Arc<AppContext>, mut record: SessionRecord, mu
                 if let Ok(p) = db.get_project(&record.project_id) {
                     crate::projects::docs_sync::reconcile_quietly(std::path::Path::new(&p.path));
                 }
+                // Automatic commit/push of whatever the turn changed (project setting; never blocks the pipeline).
+                if crate::git::auto::should_run(stop_reason.as_deref()) {
+                    let ctx3 = ctx.clone();
+                    let (pid, sid3, prompt) = (record.project_id.clone(), sid.clone(), last_user_text.clone());
+                    tokio::spawn(async move { crate::git::auto::after_turn(ctx3, &pid, &sid3, &prompt).await });
+                }
+            }
+            SessionEvent::AutoGit { ok, message, commit, pushed } => {
+                log(db, &sid, MessageKind::System, json!({ "subtype": "auto_git", "ok": ok, "message": message, "commit": commit, "pushed": pushed }));
             }
             SessionEvent::Error { message, .. } => log(db, &sid, MessageKind::System, json!({ "subtype": "error", "message": message })),
             _ => {}

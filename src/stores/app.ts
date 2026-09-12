@@ -21,6 +21,12 @@ interface AppState {
   /** Text the chat composer should append (set by the preview element picker). */
   composerInsert: { text: string; nonce: number } | null;
   filesPanelOpen: boolean;
+  /** Right-hand "남은 사용량" panel. */
+  usagePanelOpen: boolean;
+  /** Project whose account picker should be shown (opened from anywhere, e.g. the quick "새 대화"). */
+  accountsDialogProjectId: string | null;
+  /** "새 빌드 적용" dialog. */
+  applyBuildOpen: boolean;
 
   loadSettings: () => Promise<AppSettings>;
   saveSettings: (s: AppSettings) => Promise<void>;
@@ -36,6 +42,9 @@ interface AppState {
   setPreviewOpen: (open: boolean) => void;
   insertIntoComposer: (text: string) => void;
   setFilesPanelOpen: (open: boolean) => void;
+  setUsagePanelOpen: (open: boolean) => void;
+  setAccountsDialogProjectId: (id: string | null) => void;
+  setApplyBuildOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -52,6 +61,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   previewOpen: false,
   composerInsert: null,
   filesPanelOpen: false,
+  usagePanelOpen: false,
+  accountsDialogProjectId: null,
+  applyBuildOpen: false,
 
   loadSettings: async () => {
     const settings = await ipc.settings.get();
@@ -83,10 +95,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectSession: (id) => set({ activeSessionId: id }),
   setWizardOpen: (open) => set({ wizardOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
-  setGitPanelOpen: (open) => set({ gitPanelOpen: open, ...(open ? { filesPanelOpen: false, previewOpen: false } : {}) }),
+  setGitPanelOpen: (open) => set({ gitPanelOpen: open, ...(open ? { filesPanelOpen: false, previewOpen: false, usagePanelOpen: false } : {}) }),
   setTerminalOpen: (open) => set({ terminalOpen: open }),
   setNewSessionOpen: (open) => set({ newSessionOpen: open }),
   setPreviewOpen: (open) => set({ previewOpen: open, ...(open ? { gitPanelOpen: false, filesPanelOpen: false } : {}) }),
   insertIntoComposer: (text) => set({ composerInsert: { text, nonce: Date.now() } }),
   setFilesPanelOpen: (open) => set({ filesPanelOpen: open, ...(open ? { gitPanelOpen: false, previewOpen: false } : {}) }),
+  setUsagePanelOpen: (open) => set({ usagePanelOpen: open, ...(open ? { gitPanelOpen: false } : {}) }),
+  setAccountsDialogProjectId: (id) => set({ accountsDialogProjectId: id }),
+  setApplyBuildOpen: (open) => set({ applyBuildOpen: open }),
 }));

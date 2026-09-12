@@ -7,12 +7,7 @@ use vibecode_core::types::{GitBranch, GitCommit, GitStatus, Provider};
 use crate::state::{err, AppState};
 
 async fn git_for(state: &State<'_, AppState>, project_id: &str) -> Result<(Git, PathBuf), String> {
-    let project = state.ctx.db.get_project(project_id).map_err(err)?;
-    let backend = vibecode_core::accounts::project_backend(&state.ctx, project_id).await.map_err(err)?;
-    let bin = state.ctx.git_bin().await;
-    let settings = state.ctx.settings().await;
-    let accounts = vibecode_core::accounts::project(&state.ctx.db, project_id).map_err(err)?;
-    Ok((Git::new(backend, bin).with_github_account(accounts.github).with_identity(accounts.git_user_name.or(settings.git_user_name), accounts.git_user_email.or(settings.git_user_email)), PathBuf::from(project.path)))
+    vibecode_core::git::for_project(&state.ctx, project_id).await.map_err(err)
 }
 
 #[tauri::command]

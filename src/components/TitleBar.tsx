@@ -3,7 +3,7 @@
 // `data-tauri-drag-region` move the window; double-click toggles maximize.
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, MoreHorizontal, FolderTree, GitBranch, Minus, MonitorPlay, Settings, Square, SquareTerminal, X } from "lucide-react";
+import { Copy, Gauge, Hammer, MoreHorizontal, FolderTree, GitBranch, Minus, MonitorPlay, Settings, Square, SquareTerminal, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Logo } from "@/components/Logo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -55,11 +55,14 @@ export function TitleBar({ showPanels = true }: { showPanels?: boolean }) {
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const filesPanelOpen = useAppStore((s) => s.filesPanelOpen);
   const previewOpen = useAppStore((s) => s.previewOpen);
+  const usagePanelOpen = useAppStore((s) => s.usagePanelOpen);
+  const setUsagePanelOpen = useAppStore((s) => s.setUsagePanelOpen);
   const setGitPanelOpen = useAppStore((s) => s.setGitPanelOpen);
   const setTerminalOpen = useAppStore((s) => s.setTerminalOpen);
   const setFilesPanelOpen = useAppStore((s) => s.setFilesPanelOpen);
   const setPreviewOpen = useAppStore((s) => s.setPreviewOpen);
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
+  const setApplyBuildOpen = useAppStore((s) => s.setApplyBuildOpen);
 
   useEffect(() => {
     if (!inTauri()) return;
@@ -98,12 +101,14 @@ export function TitleBar({ showPanels = true }: { showPanels?: boolean }) {
         <div className="flex items-center gap-0.5 pl-2 pr-3">
           <PanelButton icon={<MonitorPlay className="size-4" />} label="미리보기" hint="만든 화면 확인하기 (Ctrl+4)" pressed={previewOpen} onClick={() => setPreviewOpen(!previewOpen)} />
           <PanelButton icon={<GitBranch className="size-4" />} label="변경 내역" hint="변경 확인하고 버전 저장하기 (Ctrl+1)" pressed={gitPanelOpen} onClick={() => setGitPanelOpen(!gitPanelOpen)} />
+          <PanelButton icon={<Gauge className="size-4" />} label="사용량" hint="AI 계정의 남은 사용량 그래프 (Ctrl+5)" pressed={usagePanelOpen} onClick={() => setUsagePanelOpen(!usagePanelOpen)} />
           <PanelButton icon={<Settings className="size-4" />} label="설정" hint="AI 계정 · 저장 위치 · 화면 설정 (Ctrl+,)" onClick={() => setSettingsOpen(true)} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button type="button" aria-label="추가 도구" className="flex h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent"><MoreHorizontal className="size-4" /><span>더 보기</span></button></DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem onClick={() => setFilesPanelOpen(!filesPanelOpen)}><FolderTree /> {filesPanelOpen ? "파일 목록 닫기" : "파일 목록 열기"} <span className="ml-auto text-xs text-muted-foreground">Ctrl+3</span></DropdownMenuItem>
               <DropdownMenuItem onClick={() => setTerminalOpen(!terminalOpen)}><SquareTerminal /> {terminalOpen ? "개발자 터미널 닫기" : "개발자 터미널 열기"} <span className="ml-auto text-xs text-muted-foreground">Ctrl+2</span></DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setApplyBuildOpen(true)}><Hammer /> 새 빌드 적용 (다시 빌드 후 재시작)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

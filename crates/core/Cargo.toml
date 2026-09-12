@@ -14,6 +14,7 @@ base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 dirs = "6.0.0"
 futures = "0.3.34"
+glob = "0.3"
 keyring = "4.2.0"
 notify = "8"
 portable-pty = "0.9.0"
@@ -30,6 +31,7 @@ tracing = "0.1.44"
 ts-rs = { version = "12.0.1", features = ["serde-compat", "uuid-impl", "chrono-impl", "serde-json-impl"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
 which = "8.0.6"
+zip = { version = "4.6", default-features = false, features = ["deflate"] }
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.62.2", features = ["Win32_System_JobObjects", "Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }

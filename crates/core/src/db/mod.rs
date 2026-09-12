@@ -10,8 +10,8 @@ use serde_json::Value;
 
 use crate::error::{CoreError, Result};
 use crate::types::{
-    AppSettings, CheckpointRecord, Effort, MessageKind, MessageRecord, PermissionPreset, ProjectRecord, ProjectSettingsUpdate, ProjectType, Provider,
-    SessionRecord, TargetOs,
+    AppSettings, AutoGit, CheckpointRecord, Effort, MessageKind, MessageRecord, PermissionPreset, ProjectRecord, ProjectSettingsUpdate, ProjectType,
+    Provider, RateLimitWindow, SessionRecord, TargetOs, UsageSample,
 };
 
 pub struct Db {
@@ -72,7 +72,24 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS checkpoints_project ON checkpoints(project_id, seq DESC);
+CREATE TABLE IF NOT EXISTS usage_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    account_id TEXT,
+    window_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    used_percent REAL NOT NULL,
+    resets_at INTEGER,
+    window_minutes INTEGER,
+    observed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_samples_key ON usage_samples(provider, account_id, window_id, observed_at DESC);
 "#;
+
+/// Usage rows older than this are pruned on insert.
+const USAGE_RETENTION_SECS: i64 = 14 * 24 * 3600;
+/// A report identical to the newest stored row within this many seconds is not stored again.
+const USAGE_DEDUPE_SECS: i64 = 120;
 
 fn row_checkpoint(r: &Row) -> rusqlite::Result<CheckpointRecord> {
     Ok(CheckpointRecord {
@@ -111,8 +128,24 @@ fn row_project(r: &Row) -> rusqlite::Result<ProjectRecord> {
         default_model: r.get("default_model")?,
         default_effort: enum_parse::<Effort>(r.get("default_effort")?),
         default_permission: enum_parse::<PermissionPreset>(r.get("default_permission")?),
+        auto_git: enum_parse::<AutoGit>(r.get("auto_git")?),
         created_at: parse_ts(r.get("created_at")?),
         last_opened_at: parse_ts(r.get("last_opened_at")?),
+    })
+}
+
+fn row_usage(r: &Row) -> rusqlite::Result<UsageSample> {
+    Ok(UsageSample {
+        provider: enum_parse::<Provider>(r.get("provider")?).unwrap_or(Provider::Claude),
+        account_id: r.get("account_id")?,
+        window: RateLimitWindow {
+            id: r.get("window_id")?,
+            label: r.get("label")?,
+            used_percent: r.get("used_percent")?,
+            resets_at: r.get("resets_at")?,
+            window_minutes: r.get("window_minutes")?,
+        },
+        observed_at: r.get("observed_at")?,
     })
 }
 
@@ -182,6 +215,15 @@ impl Db {
             if !has_archived {
                 c.execute_batch("ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;")?;
             }
+            // projects.auto_git (per-project auto commit/push) was added later as well.
+            let has_auto_git = {
+                let mut st = c.prepare("PRAGMA table_info(projects)")?;
+                let cols = st.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                cols.iter().any(|n| n == "auto_git")
+            };
+            if !has_auto_git {
+                c.execute_batch("ALTER TABLE projects ADD COLUMN auto_git TEXT;")?;
+            }
             Ok(())
         })
     }
@@ -233,11 +275,12 @@ impl Db {
     pub fn upsert_project(&self, p: &ProjectRecord) -> Result<()> {
         self.with_conn(|c| {
             c.execute(
-                "INSERT INTO projects(id,name,path,target_os,project_type,stack_id,github_url,default_provider,default_model,default_effort,default_permission,created_at,last_opened_at)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
+                "INSERT INTO projects(id,name,path,target_os,project_type,stack_id,github_url,default_provider,default_model,default_effort,default_permission,created_at,last_opened_at,auto_git)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
                  ON CONFLICT(id) DO UPDATE SET name=excluded.name, path=excluded.path, target_os=excluded.target_os, project_type=excluded.project_type,
                    stack_id=excluded.stack_id, github_url=excluded.github_url, default_provider=excluded.default_provider, default_model=excluded.default_model,
-                   default_effort=excluded.default_effort, default_permission=excluded.default_permission, last_opened_at=excluded.last_opened_at",
+                   default_effort=excluded.default_effort, default_permission=excluded.default_permission, last_opened_at=excluded.last_opened_at,
+                   auto_git=excluded.auto_git",
                 params![
                     p.id,
                     p.name,
@@ -252,6 +295,7 @@ impl Db {
                     p.default_permission.as_ref().map(enum_str),
                     p.created_at.to_rfc3339(),
                     p.last_opened_at.to_rfc3339(),
+                    p.auto_git.as_ref().map(enum_str),
                 ],
             )?;
             Ok(())
@@ -272,9 +316,10 @@ impl Db {
             let tx = c.unchecked_transaction()?;
             if tx.execute(
                 "UPDATE projects SET name=?2,default_provider=?3,default_model=?4,default_effort=?5,default_permission=?6,
-                 github_url=CASE WHEN ?7 THEN ?8 ELSE github_url END WHERE id=?1",
+                 github_url=CASE WHEN ?7 THEN ?8 ELSE github_url END, auto_git=?9 WHERE id=?1",
                 params![id, req.name, enum_str(&req.default_provider), req.default_model,
-                    req.default_effort.as_ref().map(enum_str), enum_str(&req.default_permission), req.update_remote, github_url],
+                    req.default_effort.as_ref().map(enum_str), enum_str(&req.default_permission), req.update_remote, github_url,
+                    req.auto_git.as_ref().map(enum_str)],
             )? == 0 {
                 return Err(CoreError::NotFound(format!("project {id}")));
             }
@@ -447,6 +492,58 @@ impl Db {
         })
     }
 
+    // ---- usage samples (subscription rate-limit windows, for the usage graph) ----
+    /// Store one report. Rows identical to the newest stored row of the same window (within
+    /// `USAGE_DEDUPE_SECS`) are skipped so a busy turn does not flood the table. Returns how many rows were written.
+    pub fn insert_usage_samples(&self, provider: Provider, account_id: Option<&str>, windows: &[RateLimitWindow], observed_at: i64) -> Result<usize> {
+        self.with_conn(|c| {
+            let mut written = 0;
+            for w in windows {
+                let last: Option<(f64, Option<i64>, i64)> = c
+                    .query_row(
+                        "SELECT used_percent, resets_at, observed_at FROM usage_samples WHERE provider=?1 AND account_id IS ?2 AND window_id=?3 ORDER BY observed_at DESC, id DESC LIMIT 1",
+                        params![enum_str(&provider), account_id, w.id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .optional()?;
+                if let Some((pct, resets, at)) = last {
+                    if (pct - w.used_percent).abs() < 0.01 && resets == w.resets_at && observed_at - at < USAGE_DEDUPE_SECS {
+                        continue;
+                    }
+                }
+                c.execute(
+                    "INSERT INTO usage_samples(provider,account_id,window_id,label,used_percent,resets_at,window_minutes,observed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![enum_str(&provider), account_id, w.id, w.label, w.used_percent, w.resets_at, w.window_minutes, observed_at],
+                )?;
+                written += 1;
+            }
+            if written > 0 {
+                c.execute("DELETE FROM usage_samples WHERE observed_at < ?1", params![observed_at - USAGE_RETENTION_SECS])?;
+            }
+            Ok(written)
+        })
+    }
+
+    /// Samples of one account newer than `since` (epoch seconds), oldest first.
+    pub fn list_usage_samples(&self, provider: Provider, account_id: Option<&str>, since: i64) -> Result<Vec<UsageSample>> {
+        self.with_conn(|c| {
+            let mut st = c.prepare("SELECT * FROM usage_samples WHERE provider=?1 AND account_id IS ?2 AND observed_at >= ?3 ORDER BY observed_at, id")?;
+            let rows = st.query_map(params![enum_str(&provider), account_id, since], row_usage)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Newest sample of every (provider, account, window).
+    pub fn latest_usage_samples(&self) -> Result<Vec<UsageSample>> {
+        self.with_conn(|c| {
+            let mut st = c.prepare(
+                "SELECT u.* FROM usage_samples u JOIN (SELECT provider, account_id, window_id, MAX(id) AS id FROM usage_samples GROUP BY provider, account_id, window_id) m ON m.id = u.id ORDER BY u.provider, u.account_id, u.window_id",
+            )?;
+            let rows = st.query_map([], row_usage)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
     // ---- messages ----
     pub fn append_message(&self, session_id: &str, kind: MessageKind, payload: Value) -> Result<MessageRecord> {
         self.with_conn(|c| {
@@ -498,6 +595,7 @@ mod tests {
             default_model: None,
             default_effort: Some(Effort::High),
             default_permission: Some(PermissionPreset::AutoEdit),
+            auto_git: Some(AutoGit::Commit),
             created_at: Utc::now(),
             last_opened_at: Utc::now(),
         }
@@ -516,6 +614,7 @@ mod tests {
         let got = db.get_project("a").unwrap();
         assert_eq!(got.target_os, Some(TargetOs::Windows));
         assert_eq!(got.default_effort, Some(Effort::High));
+        assert_eq!(got.auto_git, Some(AutoGit::Commit));
         assert_eq!(db.list_projects().unwrap().len(), 1);
         assert!(db.find_project_by_path("C:\\p\\a").unwrap().is_some());
 
@@ -592,5 +691,24 @@ mod tests {
         db.migrate().unwrap(); // idempotent
         db.upsert_project(&project("p")).unwrap();
         assert!(db.list_sessions("p").unwrap().is_empty());
+        assert_eq!(db.get_project("p").unwrap().auto_git, Some(AutoGit::Commit));
+    }
+
+    #[test]
+    fn usage_samples_dedupe_and_latest() {
+        let db = Db::open_in_memory().unwrap();
+        let w = |pct: f64| RateLimitWindow { id: "five_hour".into(), label: "5시간".into(), used_percent: pct, resets_at: Some(1_000), window_minutes: Some(300) };
+        assert_eq!(db.insert_usage_samples(Provider::Claude, Some("acc"), &[w(10.0)], 100).unwrap(), 1);
+        // identical report shortly after: skipped
+        assert_eq!(db.insert_usage_samples(Provider::Claude, Some("acc"), &[w(10.0)], 130).unwrap(), 0);
+        // changed value: stored
+        assert_eq!(db.insert_usage_samples(Provider::Claude, Some("acc"), &[w(12.5)], 140).unwrap(), 1);
+        // another account is independent
+        assert_eq!(db.insert_usage_samples(Provider::Codex, None, &[w(50.0)], 150).unwrap(), 1);
+        let hist = db.list_usage_samples(Provider::Claude, Some("acc"), 0).unwrap();
+        assert_eq!(hist.iter().map(|s| s.window.used_percent).collect::<Vec<_>>(), vec![10.0, 12.5]);
+        let latest = db.latest_usage_samples().unwrap();
+        assert_eq!(latest.len(), 2);
+        assert!(latest.iter().any(|s| s.provider == Provider::Claude && s.window.used_percent == 12.5));
     }
 }

@@ -346,3 +346,24 @@ describe("fromMessages (new payloads)", () => {
     expect((items[3] as { questions: unknown[] }).questions).toHaveLength(1);
   });
 });
+
+describe("usage and auto-git events", () => {
+  it("rate_limits adds no transcript item", () => {
+    const s = run([{ type: "rate_limits", provider: "claude", account_id: "a", windows: [{ id: "five_hour", label: "5시간", used_percent: 10, resets_at: null, window_minutes: 300 }], observed_at: 1 }]);
+    expect(s.items).toHaveLength(0);
+  });
+
+  it("auto_git becomes a marker item and is restored from history", () => {
+    const s = run([
+      { type: "user_message", text: "x" },
+      { type: "turn_end", cost_usd: null, usage: usage(1, 1), duration_ms: 5, stop_reason: "end_turn" },
+      { type: "auto_git", ok: true, message: "변경 2개를 자동으로 저장했습니다", commit: "abc1234", pushed: false },
+    ]);
+    expect(s.items[s.items.length - 1]).toMatchObject({ type: "auto_git", ok: true, commit: "abc1234", pushed: false });
+    const records: MessageRecord[] = [
+      { id: "m1", session_id: "s1", seq: 1, kind: "system", payload: { subtype: "auto_git", ok: false, message: "업로드 실패", commit: "def5678", pushed: false }, created_at: "" },
+    ];
+    const { items } = fromMessages(records);
+    expect(items[0]).toMatchObject({ type: "auto_git", ok: false, message: "업로드 실패", commit: "def5678" });
+  });
+});

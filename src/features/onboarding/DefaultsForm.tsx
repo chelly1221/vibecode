@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ipc, type AppSettings, type ModelInfo, type Provider } from "@/lib/ipc";
-import { EFFORT_OPTIONS, PERMISSION_OPTIONS, PROVIDER_OPTIONS } from "@/features/settings/options";
+import { AUTO_GIT_OPTIONS, EFFORT_OPTIONS, PERMISSION_OPTIONS, PROVIDER_OPTIONS } from "@/features/settings/options";
 
 const NONE = "__default__";
 
@@ -111,6 +111,23 @@ export function DefaultsForm({ draft, onChange }: Props) {
             </label>
           ))}
         </div>
+      </div>
+
+      <div className="space-y-2 md:col-span-2">
+        <Label>AI 작업이 끝나면 변경 기록 저장</Label>
+        <Select value={draft.auto_git ?? "off"} onValueChange={(v) => onChange({ auto_git: v as AppSettings["auto_git"] })}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {AUTO_GIT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label} <span className="text-muted-foreground">· {o.description}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">변경 기록(git)을 시작한 프로젝트에만 적용됩니다. 프로젝트마다 따로 정할 수도 있어요.</p>
       </div>
 
       <details className="rounded-xl border p-4 md:col-span-2" onToggle={(e) => setAdvanced(e.currentTarget.open)}>

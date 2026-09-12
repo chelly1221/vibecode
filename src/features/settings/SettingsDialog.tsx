@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, FolderOpen, Save } from "lucide-react";
+import { ExternalLink, FolderOpen, Hammer, Save } from "lucide-react";
 import { toast } from "sonner";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -199,6 +199,13 @@ function AboutTab() {
         AI와 대화하며 프로그램을 만들고, 결과를 확인하고, 변경 기록을 관리하는 작업 공간입니다.
       </p>
       <UpdateSection />
+      <div className="rounded-xl border p-4">
+        <div className="text-sm font-medium">소스에서 새 빌드 적용</div>
+        <p className="mt-1 text-xs text-muted-foreground">소스 폴더에서 Vibecoder를 다시 빌드하고, 지금 쓰는 실행 파일을 바꿔서 자동으로 다시 시작합니다.</p>
+        <Button size="sm" variant="outline" className="mt-3" onClick={() => { useAppStore.getState().setSettingsOpen(false); useAppStore.getState().setApplyBuildOpen(true); }}>
+          <Hammer /> 새 빌드 적용…
+        </Button>
+      </div>
       <ul className="space-y-1">
         {links.map(([label, url]) => (
           <li key={url}>

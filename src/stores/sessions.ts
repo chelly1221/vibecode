@@ -22,6 +22,7 @@ import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
 import type { PlanStep } from "@/lib/bindings/PlanStep";
 import type { Usage } from "@/lib/bindings/Usage";
 import { useAppStore } from "@/stores/app";
+import { useUsageStore } from "@/stores/usage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +68,8 @@ export type ChatItem =
       answers?: QuestionAnswer[];
     }
   | { type: "checkpoint"; id: string; checkpoint_id: string; label: string }
+  /** Outcome of the automatic commit/push after a turn. */
+  | { type: "auto_git"; id: string; ok: boolean; message: string; commit: string | null; pushed: boolean }
   | { type: "system"; id: string; text: string; variant: "info" | "error" | "turn_end" | "exited"; meta?: TurnMeta };
 
 /** Item inside a subagent transcript (a reduced ChatItem). */
@@ -504,6 +507,15 @@ export function applyEvent(state: SessionState, ev: SessionEvent): SessionState 
       patch.statusMessage = ev.message;
       break;
     }
+    case "rate_limits": {
+      // Account-level data: routed to the usage store by `dispatch`; nothing to show in the transcript.
+      break;
+    }
+    case "auto_git": {
+      finalizeStreaming(items);
+      items.push({ type: "auto_git", id: mk(), ok: ev.ok, message: ev.message, commit: ev.commit ?? null, pushed: ev.pushed });
+      break;
+    }
     case "turn_end": {
       finalizeStreaming(items);
       const meta: TurnMeta = {
@@ -732,6 +744,8 @@ export function fromMessages(records: MessageRecord[]): {
           items.push({ type: "system", id, variant: "exited", text: "세션 종료" });
         } else if (subtype === "checkpoint") {
           items.push({ type: "checkpoint", id, checkpoint_id: str(p.checkpoint_id), label: str(p.label, "체크포인트") });
+        } else if (subtype === "auto_git") {
+          items.push({ type: "auto_git", id, ok: p.ok !== false, message: str(p.message, "자동 저장"), commit: typeof p.commit === "string" ? p.commit : null, pushed: p.pushed === true });
         } else if (subtype === "question") {
           items.push({ type: "question", id, request_id: str(p.request_id, id), questions: questionsOf(p.questions), answered: true, answers: answersOf(p.answers) });
         } else {
@@ -804,6 +818,10 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
   dispatch: (id, ev) => {
     const cur = get().sessions[id];
     if (!cur) return;
+    if (ev.type === "rate_limits") {
+      useUsageStore.getState().ingest(ev.provider, ev.account_id ?? null, ev.windows, ev.observed_at);
+      return;
+    }
     set((s) => ({ sessions: { ...s.sessions, [id]: applyEvent(cur, ev) } }));
     if (ev.type === "turn_end" || ev.type === "exited" || ev.type === "init") {
       useAppStore

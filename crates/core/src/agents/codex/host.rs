@@ -17,7 +17,7 @@ use super::session::{CodexSession, SessionInner, TurnConfig};
 use crate::agents::{AgentSession, StartArgs};
 use crate::backend::{process, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
-use crate::types::{ModelInfo, Provider, SessionEvent};
+use crate::types::{ModelInfo, Provider, RateLimitWindow, SessionEvent};
 
 type Registry = Arc<RwLock<HashMap<String, Arc<SessionInner>>>>;
 
@@ -142,8 +142,18 @@ impl CodexHost {
                                 tracing::debug!("codex: unrouted server request {method}");
                                 let _ = rpc_for_dispatch.respond_error(id.clone(), -32601, "no session for this request").await;
                             }
+                            (None, Incoming::Notification { method, params }) if method == "account/rateLimits/updated" => {
+                                // Account-wide, not tied to a thread: every session of this host shares the account.
+                                let windows = mapping::rate_limit_windows(params);
+                                if !windows.is_empty() {
+                                    let observed_at = chrono::Utc::now().timestamp();
+                                    for s in sessions.read().await.values() {
+                                        s.emit(SessionEvent::RateLimits { provider: Provider::Codex, account_id: None, windows: windows.clone(), observed_at });
+                                    }
+                                }
+                            }
                             (None, Incoming::Notification { method, params }) => {
-                                if !matches!(method.as_str(), "thread/started" | "thread/status/changed" | "account/rateLimits/updated" | "remoteControl/status/changed") {
+                                if !matches!(method.as_str(), "thread/started" | "thread/status/changed" | "remoteControl/status/changed") {
                                     tracing::trace!("codex: unrouted notification {method}: {params}");
                                 }
                             }
@@ -202,6 +212,13 @@ impl CodexHost {
         let rpc = self.rpc().await?;
         let v = rpc.request("account/read", json!({ "refreshToken": false })).await?;
         Ok(v.get("account").map(|a| !a.is_null()).unwrap_or(false))
+    }
+
+    /// `account/rateLimits/read` → current subscription windows (needs a logged-in account).
+    pub async fn read_rate_limits(&self) -> Result<Vec<RateLimitWindow>> {
+        let rpc = self.rpc().await?;
+        let v = rpc.request("account/rateLimits/read", json!({})).await.map_err(auth_aware)?;
+        Ok(mapping::rate_limit_windows(&v))
     }
 
     /// Start (or resume/fork) a thread for `args`.

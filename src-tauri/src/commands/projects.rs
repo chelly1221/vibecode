@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 use vibecode_core::projects::{catalog, scaffold};
-use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ProjectPlan, ProjectPlanRequest, ProjectRecord, ProjectRemoteStatus, ProjectSettingsUpdate, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
+use vibecode_core::types::{AgentDocsStatus, CreateProjectRequest, ExportEvent, ProjectPlan, ProjectPlanRequest, ProjectRecord, ProjectRemoteStatus, ProjectSettingsUpdate, ProjectType, ScaffoldEvent, StackInfo, StackRecommendRequest, StackRecommendation, TargetOs};
 
 use crate::state::{err, AppState};
 
@@ -98,4 +98,29 @@ pub async fn projects_generate_agent_docs(state: State<'_, AppState>, id: String
 #[tauri::command]
 pub async fn projects_ai_plan(state: State<'_, AppState>, req: ProjectPlanRequest) -> Result<ProjectPlan, String> {
     vibecode_core::projects::ai_plan::plan(state.ctx.clone(), req).await.map_err(err)
+}
+
+/// Suggested file name for the export save dialog (None = the stack has no export recipe).
+#[tauri::command]
+pub async fn projects_export_name(state: State<'_, AppState>, id: String) -> Result<Option<String>, String> {
+    let project = state.ctx.db.get_project(&id).map_err(err)?;
+    let stack = project.stack_id.as_deref().map(catalog::get).transpose().map_err(err)?.flatten();
+    let Some(cfg) = stack.and_then(|s| s.export) else { return Ok(None) };
+    let dir_name = std::path::Path::new(&project.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Some(vibecode_core::projects::export::suggested_file_name(&project.name, &dir_name, &cfg)))
+}
+
+/// Build the project with its stack's export recipe and package the result at `dest`.
+/// Streams `ExportEvent`s; resolves with the written path.
+#[tauri::command]
+pub async fn projects_export(state: State<'_, AppState>, id: String, dest: String, on_event: Channel<ExportEvent>) -> Result<String, String> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ExportEvent>();
+    let forward = tauri::async_runtime::spawn(async move {
+        while let Some(ev) = rx.recv().await {
+            let _ = on_event.send(ev);
+        }
+    });
+    let res = vibecode_core::projects::export::run(state.ctx.clone(), &id, &dest, tx).await.map_err(err);
+    let _ = forward.await;
+    res
 }

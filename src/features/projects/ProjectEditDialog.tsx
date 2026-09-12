@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AccountChoices } from "@/features/accounts/AccountChoices";
 import { EFFORTS, EFFORT_LABEL, PERMISSION_HINT, PERMISSION_LABEL, PERMISSION_PRESETS, PROVIDER_LABEL } from "@/features/chat/labels";
+import { AUTO_GIT_OPTIONS, autoGitLabel } from "@/features/settings/options";
+import type { AutoGit } from "@/lib/bindings/AutoGit";
 import { useModels } from "@/hooks/useModels";
 import type { Effort } from "@/lib/bindings/Effort";
 import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
@@ -40,6 +42,7 @@ export function ProjectEditDialog({ project, onClose }: { project: ProjectRecord
         default_model: saved.default_model ?? (provider === "claude" ? settings?.default_model_claude : settings?.default_model_codex) ?? null,
         default_effort: saved.default_effort ?? settings?.default_effort ?? null,
         default_permission: saved.default_permission ?? settings?.default_permission ?? "full_auto",
+        auto_git: saved.auto_git ?? null,
         update_remote: false, remote_url: null,
       });
     }).catch((e) => { if (!cancelled) setLoadError(String(e)); });
@@ -164,6 +167,17 @@ export function ProjectEditDialog({ project, onClose }: { project: ProjectRecord
               {!remoteLoading && remote && !remote.is_repo && <div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">저장소 연결을 위해 변경 기록을 시작하세요.</p><Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => void initializeGit()}>{initializing && <Loader2 className="animate-spin" />}변경 기록 시작</Button></div>}
               {remoteError && <p role="alert" className="text-xs text-destructive">{remoteError}<Button type="button" size="sm" variant="link" disabled={disabled} onClick={() => void loadRemote()}>다시 확인</Button></p>}
               {missingGithub && <p role="alert" className="text-xs text-destructive">저장소에 사용할 GitHub 계정을 선택하세요.</p>}
+              <div className="mt-1 grid gap-1.5">
+                <Label htmlFor="edit-project-auto-git">AI 작업이 끝나면 변경 기록 저장</Label>
+                <Select value={draft.auto_git ?? "default"} disabled={disabled} onValueChange={(v) => { if (v) patch({ auto_git: v === "default" ? null : (v as AutoGit) }); }}>
+                  <SelectTrigger id="edit-project-auto-git" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent position="popper" side="bottom" align="start">
+                    <SelectItem value="default">기본 설정 따르기 ({autoGitLabel(useAppStore.getState().settings?.auto_git ?? "off")})</SelectItem>
+                    {AUTO_GIT_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{AUTO_GIT_OPTIONS.find((o) => o.value === (draft.auto_git ?? useAppStore.getState().settings?.auto_git ?? "off"))?.description}{draft.auto_git === "commit_push" || (draft.auto_git === null && useAppStore.getState().settings?.auto_git === "commit_push") ? " · GitHub 계정과 저장소 연결이 필요합니다." : ""}</p>
+              </div>
             </section>
           </>}
         </div>

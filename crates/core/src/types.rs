@@ -78,6 +78,19 @@ pub enum PermissionPreset {
     FullAuto,
 }
 
+/// What the app does with the project's working tree after every agent turn (see `git::auto`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoGit {
+    #[default]
+    Off,
+    /// Stage everything and commit when the turn changed files.
+    Commit,
+    /// Commit, then push to origin (needs the project's GitHub account).
+    CommitPush,
+}
+
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
@@ -121,6 +134,13 @@ pub struct AppSettings {
     /// MCP servers shared by both agents.
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    /// Default for projects that do not override it: commit (and push) after every agent turn.
+    #[serde(default)]
+    pub auto_git: AutoGit,
+    /// Source checkout of this app for "새 빌드 적용" (None = auto-detect).
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub dev_repo_path: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -184,6 +204,8 @@ impl Default for AppSettings {
             notifications_enabled: true,
             auto_update_check: true,
             mcp_servers: vec![],
+            auto_git: AutoGit::Off,
+            dev_repo_path: None,
         }
     }
 }
@@ -287,6 +309,69 @@ pub struct StackInfo {
     #[ts(optional = nullable)]
     #[serde(default)]
     pub dev_command: Option<String>,
+    /// How the finished program is built and packaged for "내보내기" (None = nothing to export).
+    #[ts(optional = nullable)]
+    #[serde(default)]
+    pub export: Option<StackExport>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFormat {
+    /// Every matched artifact goes into one zip (a single matched directory is flattened to the root).
+    Zip,
+    /// The single matched file is copied as-is (exe, apk, ...).
+    File,
+}
+
+/// Build-and-package recipe of a stack (`[stack.export]` in stacks.toml).
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct StackExport {
+    /// What the user gets, e.g. "Windows 실행 파일 (portable zip)".
+    pub label: String,
+    /// Shell command run in the project directory before collecting artifacts; `{name}` = folder name.
+    #[ts(optional = nullable)]
+    #[serde(default)]
+    pub build_command: Option<String>,
+    /// Glob patterns relative to the project directory (forward slashes).
+    pub artifacts: Vec<String>,
+    pub format: ExportFormat,
+    /// Extension of the exported file without the dot ("zip", "exe", "apk").
+    pub extension: String,
+    /// Hint shown before exporting (runtime requirements, expected duration).
+    #[ts(optional = nullable)]
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// What "새 빌드 적용" would do (see `selfbuild`).
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct SelfBuildInfo {
+    /// Source checkout, when found.
+    #[ts(optional = nullable)]
+    pub repo: Option<String>,
+    /// Path of the running executable (the file that gets replaced).
+    pub current_exe: String,
+    /// Where the build writes the new executable.
+    #[ts(optional = nullable)]
+    pub build_output: Option<String>,
+    /// The running exe is the build output itself: build must happen after the app exits.
+    pub in_place: bool,
+    pub build_command: String,
+}
+
+/// Progress of `projects_export` (also used by the self-build).
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExportEvent {
+    Step { name: String },
+    Log { line: String, is_err: bool },
+    Done { path: String, size_bytes: i64, files: i64 },
+    Failed { message: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -312,6 +397,10 @@ pub struct ProjectRecord {
     pub default_effort: Option<Effort>,
     #[ts(optional = nullable)]
     pub default_permission: Option<PermissionPreset>,
+    /// None = follow `AppSettings.auto_git`.
+    #[ts(optional = nullable)]
+    #[serde(default)]
+    pub auto_git: Option<AutoGit>,
     pub created_at: DateTime<Utc>,
     pub last_opened_at: DateTime<Utc>,
 }
@@ -325,6 +414,10 @@ pub struct ProjectSettingsUpdate {
     pub default_model: Option<String>,
     pub default_effort: Option<Effort>,
     pub default_permission: PermissionPreset,
+    /// None = follow the global default.
+    #[ts(optional = nullable)]
+    #[serde(default)]
+    pub auto_git: Option<AutoGit>,
     /// Only change origin when the user edits the repository connection.
     pub update_remote: bool,
     pub remote_url: Option<String>,
@@ -573,6 +666,37 @@ pub struct QuestionAnswer {
     pub answers: Vec<String>,
 }
 
+/// One subscription rate-limit window as reported by a CLI
+/// (Claude: 5-hour session / 7-day weekly; Codex: primary / secondary).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, TS)]
+#[ts(export)]
+pub struct RateLimitWindow {
+    /// Stable id: "five_hour" | "seven_day" | "seven_day_overage_included" | "primary" | "secondary".
+    pub id: String,
+    /// Korean label for the UI ("5시간", "1주일").
+    pub label: String,
+    /// 0..100
+    pub used_percent: f64,
+    /// Unix epoch seconds when the window resets.
+    #[ts(optional = nullable)]
+    pub resets_at: Option<i64>,
+    /// Window length in minutes when the provider reports it.
+    #[ts(optional = nullable)]
+    pub window_minutes: Option<i64>,
+}
+
+/// A persisted usage observation (one row per window per report), for the usage graph.
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct UsageSample {
+    pub provider: Provider,
+    #[ts(optional = nullable)]
+    pub account_id: Option<String>,
+    pub window: RateLimitWindow,
+    /// Unix epoch seconds.
+    pub observed_at: i64,
+}
+
 /// Provider-agnostic event stream consumed by the chat UI.
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -628,6 +752,24 @@ pub enum SessionEvent {
         stop_reason: Option<String>,
     },
     Error { message: String, fatal: bool },
+    /// Subscription usage reported by the CLI (Claude `rate_limit_event`, Codex `account/rateLimits/updated`).
+    /// `account_id` is filled in by the session manager.
+    RateLimits {
+        provider: Provider,
+        #[ts(optional = nullable)]
+        account_id: Option<String>,
+        windows: Vec<RateLimitWindow>,
+        /// Unix epoch seconds.
+        observed_at: i64,
+    },
+    /// Outcome of the automatic commit/push that runs after a turn (see `git::auto`).
+    AutoGit {
+        ok: bool,
+        message: String,
+        #[ts(optional = nullable)]
+        commit: Option<String>,
+        pushed: bool,
+    },
     Exited {
         #[ts(optional = nullable)]
         code: Option<i32>,

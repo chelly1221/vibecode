@@ -4,9 +4,14 @@ import type { PermissionDecision } from "./PermissionDecision";
 import type { PermissionKind } from "./PermissionKind";
 import type { PlanStep } from "./PlanStep";
 import type { Provider } from "./Provider";
+import type { RateLimitWindow } from "./RateLimitWindow";
 import type { Usage } from "./Usage";
 
 /**
  * Provider-agnostic event stream consumed by the chat UI.
  */
-export type SessionEvent = { "type": "init", provider: Provider, model: string, external_ref: string, tools: Array<string>, } | { "type": "user_message", text: string, } | { "type": "text_delta", text: string, } | { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "tool_start", id: string, name: string, input: unknown, } | { "type": "tool_end", id: string, output: string, is_error: boolean, } | { "type": "permission_request", request_id: string, kind: PermissionKind, title: string, detail: unknown, } | { "type": "permission_resolved", request_id: string, decision: PermissionDecision, } | { "type": "question", request_id: string, questions: Array<AgentQuestion>, } | { "type": "question_resolved", request_id: string, } | { "type": "subagent", parent_tool_use_id: string, event: SessionEvent, } | { "type": "checkpoint", checkpoint_id: string, label: string, } | { "type": "plan", steps: Array<PlanStep>, } | { "type": "status", message: string, } | { "type": "turn_end", cost_usd?: number | null, usage: Usage, duration_ms: number, stop_reason?: string | null, } | { "type": "error", message: string, fatal: boolean, } | { "type": "exited", code?: number | null, };
+export type SessionEvent = { "type": "init", provider: Provider, model: string, external_ref: string, tools: Array<string>, } | { "type": "user_message", text: string, } | { "type": "text_delta", text: string, } | { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "tool_start", id: string, name: string, input: unknown, } | { "type": "tool_end", id: string, output: string, is_error: boolean, } | { "type": "permission_request", request_id: string, kind: PermissionKind, title: string, detail: unknown, } | { "type": "permission_resolved", request_id: string, decision: PermissionDecision, } | { "type": "question", request_id: string, questions: Array<AgentQuestion>, } | { "type": "question_resolved", request_id: string, } | { "type": "subagent", parent_tool_use_id: string, event: SessionEvent, } | { "type": "checkpoint", checkpoint_id: string, label: string, } | { "type": "plan", steps: Array<PlanStep>, } | { "type": "status", message: string, } | { "type": "turn_end", cost_usd?: number | null, usage: Usage, duration_ms: number, stop_reason?: string | null, } | { "type": "error", message: string, fatal: boolean, } | { "type": "rate_limits", provider: Provider, account_id?: string | null, windows: Array<RateLimitWindow>, 
+/**
+ * Unix epoch seconds.
+ */
+observed_at: number, } | { "type": "auto_git", ok: boolean, message: string, commit?: string | null, pushed: boolean, } | { "type": "exited", code?: number | null, };

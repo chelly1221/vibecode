@@ -9,6 +9,7 @@ import type { QuestionAnswer } from "@/lib/ipc";
 import { useAppStore } from "@/stores/app";
 import { LONG_SESSION_QUESTIONS, questionCount, useSessionsStore } from "@/stores/sessions";
 import { Welcome } from "@/features/projects/Welcome";
+import { startQuickSessionWithToast } from "./quickSession";
 import { LongSessionBanner } from "./LongSessionBanner";
 import { CheckpointDialogs } from "./CheckpointDialogs";
 import { Composer } from "./Composer";
@@ -26,6 +27,7 @@ export function ChatView() {
   const sessionsByProject = useAppStore((s) => s.sessionsByProject);
   const loadSessions = useAppStore((s) => s.loadSessions);
   const setNewSessionOpen = useAppStore((s) => s.setNewSessionOpen);
+  const newSession = useCallback(() => { if (activeProjectId) void startQuickSessionWithToast(activeProjectId); }, [activeProjectId]);
 
   const session = useSessionsStore((s) => (activeSessionId ? s.sessions[activeSessionId] : undefined));
   const loadHistory = useSessionsStore((s) => s.loadHistory);
@@ -107,12 +109,17 @@ export function ChatView() {
         <EmptyState
           icon={<MessageSquarePlusIcon />}
           title="무엇을 바꾸고 싶으세요?"
-          description="새 대화를 열고 원하는 기능이나 수정할 내용을 편하게 설명해 주세요."
+          description="새 대화를 열고 원하는 기능이나 수정할 내용을 편하게 설명해 주세요. 프로젝트에 정해 둔 AI 설정으로 바로 시작됩니다."
           action={
-            <Button onClick={() => setNewSessionOpen(true)}>
-              <MessageSquarePlusIcon data-icon="inline-start" />
-              새 대화
-            </Button>
+            <div className="flex flex-col items-center gap-2">
+              <Button onClick={newSession}>
+                <MessageSquarePlusIcon data-icon="inline-start" />
+                새 대화
+              </Button>
+              <Button variant="link" size="sm" className="text-muted-foreground" onClick={() => setNewSessionOpen(true)}>
+                다른 AI·설정으로 시작…
+              </Button>
+            </div>
           }
         />
         <NewSessionDialog />
@@ -121,7 +128,7 @@ export function ChatView() {
   }
 
   if (historyError && !session?.live) return <>
-    <EmptyState title="대화 기록을 불러오지 못했어요" description={historyError} action={<div className="flex gap-2"><Button onClick={() => setHistoryAttempt((v) => v + 1)}>다시 시도</Button><Button variant="outline" onClick={() => setNewSessionOpen(true)}>새 대화</Button></div>} />
+    <EmptyState title="대화 기록을 불러오지 못했어요" description={historyError} action={<div className="flex gap-2"><Button onClick={() => setHistoryAttempt((v) => v + 1)}>다시 시도</Button><Button variant="outline" onClick={newSession}>새 대화</Button></div>} />
     <NewSessionDialog />
   </>;
 
@@ -178,7 +185,7 @@ export function ChatView() {
         </div>
       )}
       {showLongWarning && (
-        <LongSessionBanner count={questions} onNewSession={() => setNewSessionOpen(true)} onDismiss={() => dismissLongWarning(session.record.id)} />
+        <LongSessionBanner count={questions} onNewSession={newSession} onDismiss={() => dismissLongWarning(session.record.id)} />
       )}
       <Composer key={activeSessionId} draftKey={activeSessionId} running={session.running} starting={session.starting} onSend={onSend} onInterrupt={onInterrupt} />
       <NewSessionDialog />

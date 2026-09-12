@@ -107,6 +107,11 @@ pub fn render(session: &SessionRecord, project: Option<&ProjectRecord>, messages
                 "checkpoint" => {
                     md.push_str(&format!("*📌 체크포인트: {}*\n\n", p.get("label").and_then(Value::as_str).unwrap_or("")));
                 }
+                "auto_git" => {
+                    let commit = p.get("commit").and_then(Value::as_str).map(|c| format!(" `{c}`")).unwrap_or_default();
+                    let icon = if p.get("ok").and_then(Value::as_bool).unwrap_or(true) { "💾" } else { "⚠️" };
+                    md.push_str(&format!("*{icon} {}{commit}*\n\n", p.get("message").and_then(Value::as_str).unwrap_or("자동 저장")));
+                }
                 _ => {}
             },
         }
@@ -137,6 +142,7 @@ mod tests {
             default_model: None,
             default_effort: None,
             default_permission: None,
+            auto_git: None,
             created_at: now,
             last_opened_at: now,
         };

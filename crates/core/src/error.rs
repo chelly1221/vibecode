@@ -30,6 +30,12 @@ impl CoreError {
     }
 }
 
+impl From<zip::result::ZipError> for CoreError {
+    fn from(e: zip::result::ZipError) -> Self {
+        CoreError::Message(format!("zip error: {e}"))
+    }
+}
+
 impl From<anyhow::Error> for CoreError {
     fn from(e: anyhow::Error) -> Self {
         CoreError::Message(format!("{e:#}"))

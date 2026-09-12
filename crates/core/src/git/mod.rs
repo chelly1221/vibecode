@@ -1,13 +1,14 @@
 //! git operations executed on the host (`git.exe`, Git for Windows).
 //! `repo` is always a host (Windows) path.
 
+pub mod auto;
+pub mod parse;
 pub mod ssh;
 
-pub mod parse;
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::context::AppContext;
 
 use crate::backend::{CommandOutput, CommandSpec, ExecBackend};
 use crate::error::{CoreError, Result};
@@ -15,6 +16,20 @@ use crate::types::{GitBranch, GitCommit, GitStatus};
 
 /// Maximum diff size (chars) handed to an agent for commit-message generation.
 const MAX_COMMIT_DIFF_CHARS: usize = 60_000;
+
+/// `Git` bound to a project's backend, binary override, GitHub account and commit identity,
+/// plus the repository path. Shared by the git commands and the automatic commit.
+pub async fn for_project(ctx: &AppContext, project_id: &str) -> Result<(Git, PathBuf)> {
+    let project = ctx.db.get_project(project_id)?;
+    let backend = crate::accounts::project_backend(ctx, project_id).await?;
+    let bin = ctx.git_bin().await;
+    let settings = ctx.settings().await;
+    let accounts = crate::accounts::project(&ctx.db, project_id)?;
+    let git = Git::new(backend, bin)
+        .with_github_account(accounts.github)
+        .with_identity(accounts.git_user_name.or(settings.git_user_name), accounts.git_user_email.or(settings.git_user_email));
+    Ok((git, PathBuf::from(project.path)))
+}
 
 pub struct Git {
     pub backend: Arc<ExecBackend>,
