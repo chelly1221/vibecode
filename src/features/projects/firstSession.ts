@@ -29,7 +29,7 @@ export function firstSessionConfig(project: ProjectRecord): SessionConfig {
     provider,
     model: (project.default_provider === provider ? project.default_model ?? null : null) ?? settingsModel,
     effort: project.default_effort ?? settings?.default_effort ?? null,
-    permission: project.default_permission ?? settings?.default_permission ?? "auto_edit",
+    permission: project.default_permission ?? settings?.default_permission ?? "full_auto",
     append_system_prompt: null,
     resume_ref: null,
     fork: false,

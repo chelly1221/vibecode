@@ -1,8 +1,8 @@
 import { ipc, type ProjectAccounts } from "@/lib/ipc";
-// Top bar of a session: provider, title, model / effort / permission controls, usage and actions.
+// Top bar of a session: provider, title, model / effort controls and actions.
 
 import { useEffect, useMemo, useState } from "react";
-import { BotIcon, Loader2Icon, PowerIcon, SquareIcon } from "lucide-react";
+import { BotIcon, Loader2Icon, SquareIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useModels } from "@/hooks/useModels";
 import type { Effort } from "@/lib/bindings/Effort";
-import type { PermissionPreset } from "@/lib/bindings/PermissionPreset";
 import { runningSubagents, useSessionsStore, type SessionState } from "@/stores/sessions";
 import { CheckpointsPopover } from "./CheckpointsPopover";
 import { cn } from "@/lib/utils";
@@ -18,11 +17,7 @@ import {
   DEFAULT_OPTION,
   EFFORTS,
   EFFORT_LABEL,
-  PERMISSION_HINT,
-  PERMISSION_LABEL,
-  PERMISSION_PRESETS,
   PROVIDER_LABEL,
-  formatTokens,
 } from "./labels";
 
 export function ProviderBadge({ provider, className }: { provider: "claude" | "codex"; className?: string }) {
@@ -54,7 +49,6 @@ export function SessionHeader({
   const subagentCount = Object.keys(session.subagents).length;
   const subagentRunning = runningSubagents(session.subagents);
   const interrupt = useSessionsStore((s) => s.interrupt);
-  const closeSession = useSessionsStore((s) => s.closeSession);
   const [accounts, setAccounts] = useState<ProjectAccounts | null>(null);
   const [accountName, setAccountName] = useState<string>("");
   useEffect(() => {
@@ -132,38 +126,6 @@ export function SessionHeader({
           </SelectContent>
         </Select>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div>
-              <Select value={session.permission} onValueChange={(v) => run(updateConfig(id, { permission: v as PermissionPreset }), "권한 변경")}>
-                <SelectTrigger size="sm" className={cn(session.permission === "full_auto" && "border-destructive/60 text-destructive")} title="권한" aria-label="권한">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper" side="bottom" align="start">
-                  {PERMISSION_PRESETS.map((p) => (
-                    <SelectItem key={p} value={p} className={cn(p === "full_auto" && "text-destructive")}>
-                      {PERMISSION_LABEL[p]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>{PERMISSION_HINT[session.permission]}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
-              ↑{formatTokens(session.usage.input_tokens)} ↓{formatTokens(session.usage.output_tokens)}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            토큰 · 입력 {session.usage.input_tokens.toLocaleString()} · 출력 {session.usage.output_tokens.toLocaleString()} · 캐시 읽기{" "}
-            {session.usage.cache_read_tokens.toLocaleString()}
-          </TooltipContent>
-        </Tooltip>
-
         {subagentCount > 0 && onToggleSubagents && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -185,16 +147,6 @@ export function SessionHeader({
             <SquareIcon data-icon="inline-start" />
             중단
           </Button>
-        )}
-        {session.live && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="icon-sm" variant="ghost" onClick={() => run(closeSession(id), "세션 종료")} aria-label="AI 연결 종료">
-                <PowerIcon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>AI 연결 종료 (대화 기록은 유지됩니다)</TooltipContent>
-          </Tooltip>
         )}
       </div>
     </div>

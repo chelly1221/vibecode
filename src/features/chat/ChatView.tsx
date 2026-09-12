@@ -17,7 +17,6 @@ import { EmptyState } from "./EmptyState";
 import { MessageList } from "./MessageList";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { PermissionCard } from "./PermissionCard";
-import { QuestionCard } from "./QuestionCard";
 import { SubagentsDrawer } from "./SubagentsDrawer";
 import { SessionHeader } from "./SessionHeader";
 
@@ -142,7 +141,6 @@ export function ChatView() {
   }
 
   const pending = session.pendingPermissions[0];
-  const pendingQuestion = session.pendingQuestions[0];
   const questions = questionCount(session.items);
   const showLongWarning = questions >= LONG_SESSION_QUESTIONS && !session.longWarningDismissed;
 
@@ -151,22 +149,6 @@ export function ChatView() {
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <SessionHeader session={session} subagentsOpen={subagentsOpen} onToggleSubagents={() => setSubagentsOpen((v) => !v)} />
       <MessageList session={session} onPermission={onPermission} onAnswer={onAnswer} />
-      {pendingQuestion && !pending && (
-        <div className="border-t bg-primary/5 px-4 py-2">
-          <div className="mx-auto w-full max-w-3xl">
-            <QuestionCard
-              key={pendingQuestion.request_id}
-              requestId={pendingQuestion.request_id}
-              questions={pendingQuestion.questions}
-              compact
-              onSubmit={(answers) => onAnswer(pendingQuestion.request_id, answers)}
-            />
-            {session.pendingQuestions.length > 1 && (
-              <div className="mt-1 text-xs text-muted-foreground">대기 중인 질문 {session.pendingQuestions.length}개</div>
-            )}
-          </div>
-        </div>
-      )}
       {pending && (
         <div className="border-t bg-amber-500/5 px-4 py-2">
           <div className="mx-auto w-full max-w-3xl">

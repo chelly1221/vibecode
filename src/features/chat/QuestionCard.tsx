@@ -14,7 +14,6 @@ export interface QuestionCardProps {
   questions: AgentQuestion[];
   answered?: boolean;
   answers?: QuestionAnswer[];
-  compact?: boolean;
   disabled?: boolean;
   onSubmit?: (answers: QuestionAnswer[]) => void | Promise<void>;
   className?: string;
@@ -40,7 +39,7 @@ export function draftToAnswers(questions: AgentQuestion[], drafts: Record<string
   });
 }
 
-export function QuestionCard({ questions, answered, answers, compact, disabled, onSubmit, className }: QuestionCardProps) {
+export function QuestionCard({ questions, answered, answers, disabled, onSubmit, className }: QuestionCardProps) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() => initialDrafts(questions));
   const [busy, setBusy] = useState(false);
   const pending = !answered;
@@ -82,7 +81,7 @@ export function QuestionCard({ questions, answered, answers, compact, disabled, 
           </Badge>
         )}
       </div>
-      <div className={cn("space-y-3 border-t px-3 py-2", compact && "max-h-72 overflow-y-auto")}>
+      <div className="space-y-3 border-t px-3 py-2">
         {questions.map((q) => {
           const d = drafts[q.id] ?? { selected: [], free: "" };
           const given = answerFor(q);

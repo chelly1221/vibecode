@@ -160,7 +160,6 @@ export function Composer({ draftKey, disabled, running, starting, onSend, onInte
           {running ? "추가 요청" : "보내기"}
         </Button>
       </div>
-      <p className="mx-auto mt-2 max-w-3xl text-xs text-muted-foreground">Enter로 보내기 · Shift+Enter로 줄바꿈 · 파일을 끌어다 놓아 참고 자료 추가</p>
       {dragging && <div className="mx-auto mt-1 w-full max-w-3xl text-center text-xs text-primary">파일을 놓으면 경로가 입력됩니다</div>}
     </div>
   );
